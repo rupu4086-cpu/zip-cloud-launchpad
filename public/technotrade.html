@@ -694,7 +694,7 @@ function startListeners(){
 }
 function refreshLessonStats(){
   // Lesson counts/durations per course — real Firestore lessons only.
-  CATEGORIES.forEach(c => {
+  courses.forEach(c => {
     if(lessonStats[c.id]) return; // keep existing; detail screen loads per-course live
     db.collection("courses").doc(c.id).collection("lessons").get().then(snap => {
       let count = 0, total = 0;
