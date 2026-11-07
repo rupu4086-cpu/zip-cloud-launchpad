@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TechnoTrade Academy — Learn Trading</title>
+<meta name="description" content="Learn trading with TechnoTrade Academy courses and membership.">
+<meta property="og:title" content="TechnoTrade Academy — Learn Trading">
+<meta property="og:description" content="Learn trading with TechnoTrade Academy courses and membership.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <!--
   TECHNOTRADE ACADEMY — LEARNER WEBSITE (v1.0)
   ========================================================================================
@@ -264,6 +269,63 @@
   .modal .actions{display:flex;gap:8px}
   .modal .actions button{flex:1}
   @media (min-width:600px){ .course .thumb{aspect-ratio:16/8} }
+
+  /* Mobile layout repairs, using the uploaded site's existing theme. */
+  html{scroll-padding-bottom:100px}
+  #app{min-height:100svh;padding-top:env(safe-area-inset-top,0px)}
+  #view{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+  #view.no-nav{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+  button,a,input,select,textarea{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+  input,textarea{min-width:0;max-width:100%;scroll-margin:24px}
+  .appbar{display:grid;grid-template-columns:40px minmax(0,1fr) 44px 44px;gap:8px}
+  .iconbtn,.avatar,.backbtn{width:44px;height:44px}
+  .subhead{display:grid;grid-template-columns:44px minmax(0,1fr)}
+  .subhead h2,.detail-body h1,.course h3,.mut,.disclaimer,.err-box,.ok-box,.warn-box,.toast{overflow-wrap:anywhere}
+  .search input{flex:1;min-width:0}
+  .linkbtn,.chip,.toggle button,.lesson-row .dl{min-height:44px}
+  .lesson-row .dl{min-width:44px;flex-shrink:0}
+  .sechd,.curr-hd,.lessons-hd,.prow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+  .prow b{min-width:0;overflow-wrap:anywhere}
+  .prow b:last-child:not(:first-child){white-space:nowrap}
+  .cta-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr)}
+  .cta-bar .btn{padding:12px 10px;font-size:14px}
+  .plan .top{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
+  .plan li span{min-width:0;overflow-wrap:anywhere}
+  .verify .row{display:grid;grid-template-columns:minmax(0,1fr) auto}
+  #view > .card{margin-left:16px;margin-right:16px}
+  .card .chips{padding:8px 0 0}
+  .player-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .player-actions button{min-height:48px;min-width:0}
+  .profile-wrap{padding:16px}
+  .profile-wrap .header{display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:12px}
+  .avatar-lg{width:52px;height:52px;display:grid;place-items:center;border-radius:50%;background:var(--gold);color:var(--gold-ink);font-weight:800}
+  .profile-wrap .tx{min-width:0}
+  .profile-wrap .tx b{display:block;font-size:15px;overflow-wrap:anywhere}
+  .profile-wrap .tx span{display:block;font-size:12px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+  .sub-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--navy);color:var(--card);padding:16px;margin-bottom:16px;border-radius:14px}
+  .sub-card .tx span{color:var(--line)}
+  .sub-card .btn{width:auto;padding:12px;font-size:13px}
+  .list-card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:16px}
+  .rowitem{display:grid;grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;gap:10px;width:100%;background:var(--card);color:var(--ink);border:0;border-bottom:1px solid var(--line);padding:14px 12px;text-align:left;cursor:pointer}
+  .rowitem:last-child{border-bottom:0}
+  .rowitem .ic{width:36px;height:36px;display:grid;place-items:center;background:var(--pill);border-radius:8px;font-size:18px}
+  .rowitem .chev{color:var(--faint);font-size:22px}
+  .modal-bg{overflow-y:auto;overscroll-behavior:contain}
+  .modal{max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain}
+  .modal p{overflow-wrap:anywhere}
+  .modal .actions{margin-top:12px}
+  .modal .actions button{min-height:44px;min-width:0;overflow-wrap:anywhere}
+  .toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+  @media(max-width:360px){
+    .appbar{padding-left:12px;padding-right:12px;gap:6px}
+    .appbar .brand b{white-space:normal;line-height:1.3;font-size:13px}
+    .sub-card{grid-template-columns:minmax(0,1fr)}
+    .sub-card .btn{width:100%}
+    .plan .top .amt{font-size:22px}
+    .cta-bar{grid-template-columns:minmax(0,1fr)}
+  }
+  @media(prefers-reduced-motion:reduce){.switch::after{transition:none}}
 </style>
 </head>
 <body>
@@ -272,7 +334,7 @@
   <nav id="bottomnav" class="hide"></nav>
   <div id="toast" class="toast"></div>
   <div id="modalBg" class="modal-bg hide">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
       <p id="modalText"></p>
       <input id="modalInput" class="hide" placeholder="">
       <div class="actions">
@@ -421,8 +483,10 @@ function toast(msg){
 }
 // In-page modal (native dialogs do not work inside hosted/embedded views).
 let modalCb = null;
+let modalTrigger = null;
 function openModal(text, opts){
   opts = opts || {};
+  modalTrigger = document.activeElement;
   $("modalText").textContent = text;
   const inp = $("modalInput");
   inp.classList.toggle("hide", !opts.input);
@@ -431,9 +495,20 @@ function openModal(text, opts){
   $("modalOk").textContent = opts.okLabel || "OK";
   modalCb = opts.onOk || null;
   $("modalBg").classList.remove("hide");
-  if(opts.input) inp.focus();
+  if(opts.input) inp.focus(); else $("modalCancel").focus();
 }
-function closeModal(){ $("modalBg").classList.add("hide"); modalCb = null; }
+function closeModal(){ $("modalBg").classList.add("hide"); modalCb = null; if(modalTrigger && modalTrigger.isConnected) modalTrigger.focus(); }
+$("modalBg").addEventListener("click", e => { if(e.target === $("modalBg")) closeModal(); });
+document.addEventListener("keydown", e => {
+  if($("modalBg").classList.contains("hide")) return;
+  if(e.key === "Escape") closeModal();
+  if(e.key === "Tab"){
+    const controls = [...$("modalBg").querySelectorAll("input,button")].filter(el => !el.classList.contains("hide") && !el.disabled);
+    const first = controls[0], last = controls[controls.length - 1];
+    if(e.shiftKey && document.activeElement === first){e.preventDefault();last.focus();}
+    else if(!e.shiftKey && document.activeElement === last){e.preventDefault();first.focus();}
+  }
+});
 $("modalCancel").addEventListener("click", closeModal);
 $("modalOk").addEventListener("click", () => {
   const cb = modalCb; const val = $("modalInput").value;
@@ -676,7 +751,7 @@ function renderBottomNav(active){
   nav.querySelectorAll("button").forEach(b => {
     b.addEventListener("click", () => {
       if(b.dataset.route === "plans") plansNotice = null;
-      go(b.dataset.route === "courses" ? "home" : b.dataset.route);
+      go(b.dataset.route);
     });
   });
 }
@@ -687,13 +762,17 @@ function appBar(){
   return '<div class="appbar">' +
     '<div class="logo">📈</div>' +
     '<div class="brand"><b>TechnoTrade Academy</b><span>' + esc(greet.toUpperCase()) + '</span></div>' +
-    '<button class="iconbtn" onclick="go(\'profile\')" aria-label="Notifications">🔔</button>' +
+    '<button class="iconbtn" onclick="go(\'notifications\')" aria-label="Notifications">🔔</button>' +
     '<button class="avatar" onclick="go(\'profile\')" aria-label="Profile">' + esc(initialsOf(u && u.displayName, u && u.email)) + '</button>' +
     '</div>';
 }
 
 function render(){
   const r = currentRoute();
+  if(r.name !== "course" && detailUnsub){ detailUnsub(); detailUnsub = null; detailCourseId = null; }
+  const scrollY = window.scrollY;
+  const active = document.activeElement;
+  const fields = [...$("view").querySelectorAll("input")].map(el => ({id:el.id,value:el.value,start:el.selectionStart,end:el.selectionEnd}));
   const view = $("view");
   if(!currentUser){
     renderBottomNav("");
@@ -713,7 +792,11 @@ function render(){
   else if(r.name === "notifications"){ view.innerHTML = renderNotifications(); }
   else if(r.name === "settings"){ view.innerHTML = renderSettings(); bindSettings(); }
   else { view.innerHTML = renderHome(); bindHome(); }
-  window.scrollTo(0, 0);
+  fields.forEach(field => {
+    const el = $(field.id);
+    if(el){el.value = field.value;if(active && active.id === field.id){el.focus({preventScroll:true});if(el.type !== "email") el.setSelectionRange(field.start,field.end);}}
+  });
+  window.scrollTo(0, scrollY);
 }
 
 // ---------- Login ----------
@@ -864,6 +947,7 @@ function onCourseTap(courseId){
 // ---------- Course detail ----------
 let detailLessons = {};   // courseId -> lessons (live listener per open detail)
 let detailUnsub = null;
+let detailCourseId = null;
 function renderDetail(courseId){
   const course = courses.find(c => c.id === courseId);
   if(!course) return '<div class="loading">Course not found.</div>';
@@ -924,7 +1008,9 @@ function renderDetail(courseId){
 function bindDetail(courseId){
   const course = courses.find(c => c.id === courseId);
   if(!course) return;
+  if(detailCourseId !== courseId){
   if(detailUnsub) { try{ detailUnsub(); }catch(e){} detailUnsub = null; }
+  detailCourseId = courseId;
   detailUnsub = db.collection("courses").doc(courseId).collection("lessons").orderBy("order")
     .onSnapshot(snap => {
       detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
@@ -936,6 +1022,7 @@ function bindDetail(courseId){
       const r = currentRoute();
       if(r.name === "course" && r.args[0] === courseId) toast("Could not load lessons — check your connection.");
     });
+  }
   document.querySelectorAll("[data-lesson]").forEach(el => {
     el.addEventListener("click", e => {
       if(e.target.closest("[data-dl]")) return; // download button has its own handler
@@ -1290,7 +1377,7 @@ function renderProfile(){
     {icon:"⚙️", t:"Settings", s:"Notifications, video quality, version", route:"settings"}
   ];
   rows.forEach(r => {
-    html += '<div class="rowitem" data-profile="' + r.route + '"><span class="ic">' + r.icon + '</span><div class="tx"><b>' + r.t + '</b><span>' + esc(r.s) + '</span></div><span class="chev">›</span></div>';
+    html += '<button type="button" class="rowitem" data-profile="' + r.route + '"><span class="ic">' + r.icon + '</span><span class="tx"><b>' + r.t + '</b><span>' + esc(r.s) + '</span></span><span class="chev">›</span></button>';
   });
   html += '</div>' +
     '<button class="btn btn-white signout" id="signOutBtn">Sign out</button>' +
@@ -1371,6 +1458,7 @@ function bindDownloads(){
   });
 }
 let paymentHistory = null;
+let paymentHistoryLoading = false;
 function renderPaymentHistory(){
   let html = subHead("Payment history", "profile");
   if(!paymentHistory){
@@ -1389,6 +1477,8 @@ function renderPaymentHistory(){
   return html;
 }
 function bindPaymentHistory(){
+  if(paymentHistoryLoading || paymentHistory !== null) return;
+  paymentHistoryLoading = true;
   db.collection("payments").where("userId", "==", currentUser.uid).get()
     .then(snap => {
       const list = [];
@@ -1406,7 +1496,7 @@ function bindPaymentHistory(){
       paymentHistory = [];
       const r = currentRoute();
       if(r.name === "payments") render();
-    });
+    }).finally(() => { paymentHistoryLoading = false; });
 }
 function renderNotifications(){
   const list = store.inbox();
@@ -1457,7 +1547,7 @@ firebase.auth().onAuthStateChanged(user => {
   startListeners();
   render();
 });
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => { paymentHistory = null; render(); window.scrollTo(0,0); });
 </script>
 </body>
 </html>
