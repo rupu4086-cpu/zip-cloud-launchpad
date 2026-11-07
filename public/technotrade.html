@@ -558,6 +558,7 @@ const store = {
 // ---------- app state ----------
 let db = null;
 let currentUser = null;
+let coursesLoaded = false;
 let courses = [];          // merged shells + Firestore docs (app order)
 let lessonStats = {};      // courseId -> {count, totalDurationSec}
 let subscription = null;   // active sub doc or null
@@ -650,37 +651,16 @@ function signOut(){ return firebase.auth().signOut(); }
 function stopListeners(){ unsubscribers.forEach(fn => { try{ fn(); }catch(e){} }); unsubscribers = []; }
 
 function mergeCourses(docs){
-  const byId = {};
-  docs.forEach(d => { byId[d.id] = Object.assign({id: d.id}, d.data()); });
-  const merged = CATEGORIES.map((shell, i) => {
-    const doc = byId[shell.id];
-    if(doc){
-      return {
-        id: shell.id,
-        title: (doc.title || "").trim() || shell.title,
-        description: (doc.description || "").trim() || shell.desc,
-        category: courseCategoryLabel(shell.id) || doc.category || shell.title,
-        thumbnailUrl: doc.thumbnailUrl || "",
-        order: (typeof doc.order === "number") ? doc.order : i,
-        rating: (typeof doc.rating === "number") ? doc.rating : 0,
-        reviewCount: (typeof doc.reviewCount === "number") ? doc.reviewCount : 0
-      };
-    }
-    return {
-      id: shell.id, title: shell.title, description: shell.desc,
-      category: courseCategoryLabel(shell.id) || shell.title,
-      thumbnailUrl: "", order: i, rating: 0, reviewCount: 0
-    };
-  });
-  const extra = docs.filter(d => !CATEGORIES.some(c => c.id === d.id)).map(d => {
-    const data = d.data();
-    return {id: d.id, title: data.title || d.id, description: data.description || "",
-      category: data.category || "", thumbnailUrl: data.thumbnailUrl || "",
-      order: (typeof data.order === "number") ? data.order : 99,
+  // Admin Dashboard (Firestore "courses") is the only source; no default/sample courses.
+  return docs.map((d, i) => {
+    const data = d.data() || {};
+    return {id: d.id, title: (data.title || "").trim() || d.id, description: data.description || "",
+      category: courseCategoryLabel(d.id) || data.category || "", thumbnailUrl: data.thumbnailUrl || "",
+      order: (typeof data.order === "number") ? data.order : i,
       rating: (typeof data.rating === "number") ? data.rating : 0,
-      reviewCount: (typeof data.reviewCount === "number") ? data.reviewCount : 0};
-  });
-  return merged.concat(extra).sort((a, b) => (a.order || 0) - (b.order || 0));
+      reviewCount: (typeof data.reviewCount === "number") ? data.reviewCount : 0,
+      published: data.published !== false && data.isPublished !== false};
+  }).filter(c => c.published).sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
 function startListeners(){
@@ -689,6 +669,7 @@ function startListeners(){
   // Courses (live).
   unsubscribers.push(db.collection("courses").orderBy("order").onSnapshot(snap => {
     courses = mergeCourses(snap.docs);
+    coursesLoaded = true;
     firestoreError = null;
     refreshLessonStats();
     render();
@@ -760,7 +741,7 @@ function appBar(){
   const u = currentUser;
   const greet = "Hello" + (firstNameOf(u) ? ", " + esc(firstNameOf(u)) : "");
   return '<div class="appbar">' +
-    '<div class="logo">📈</div>' +
+    '<div class="logo" style="padding:0;border-radius:50%;overflow:hidden"><img src="/__l5e/assets-v1/16f9bf13-0fee-4e25-9bc4-548a11f66973/technotrade-logo.png" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
     '<div class="brand"><b>TechnoTrade Academy</b><span>' + esc(greet.toUpperCase()) + '</span></div>' +
     '<button class="iconbtn" onclick="go(\'notifications\')" aria-label="Notifications">🔔</button>' +
     '<button class="avatar" onclick="go(\'profile\')" aria-label="Profile">' + esc(initialsOf(u && u.displayName, u && u.email)) + '</button>' +
@@ -803,7 +784,7 @@ function render(){
 // ---------- Login ----------
 function renderLogin(){
   return '<div class="auth">' +
-    '<div class="logo-big">📈</div>' +
+    '<div class="logo-big" style="padding:0;border-radius:50%;overflow:hidden"><img src="/__l5e/assets-v1/16f9bf13-0fee-4e25-9bc4-548a11f66973/technotrade-logo.png" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
     '<h1>TechnoTrade Academy</h1>' +
     '<p class="sub">Learn trading. Trade smart.</p>' +
     '<div id="authMsg"></div>' +
@@ -902,8 +883,10 @@ function renderHome(){
   if(firestoreError){
     html += '<div class="err-box">' + esc(firestoreError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
   }
-  if(!courses.length && !firestoreError){
+  if(!coursesLoaded && !firestoreError){
     html += '<div class="loading">Loading courses…</div>';
+  } else if(!courses.length && !firestoreError){
+    html += '<div class="empty"><b>No courses yet</b><p>Courses will appear here once added.</p></div>';
   } else if(!visible.length){
     html += '<div class="empty"><b>No courses found</b><p>Try a different search or topic.</p></div>';
   } else {
