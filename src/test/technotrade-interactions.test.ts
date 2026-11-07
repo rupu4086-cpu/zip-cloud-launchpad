@@ -11,13 +11,18 @@ describe("Hosted learner interactions", () => {
     window.scrollTo = vi.fn();
     if (!script) throw new Error("Learner script missing");
     run = new Function(`${script}\nreturn code => eval(code);`)();
-    run("currentUser = {uid:'test',displayName:'Learner',email:'learner@example.com'}; courses=mergeCourses([])");
+    run("currentUser = {uid:'test',displayName:'Learner',email:'learner@example.com'}; courses=mergeCourses([{id:'basics',data:()=>({title:'Admin Course',order:1})}])");
   });
 
   it("keeps the Courses destination instead of redirecting to Home", () => {
     run("renderBottomNav('home')");
     document.querySelector<HTMLButtonElement>('[data-route="courses"]')?.click();
     expect(location.hash).toBe('#/courses');
+  });
+
+  it("shows only courses added in the Admin Dashboard", () => {
+    expect(run("mergeCourses([]).length")).toBe(0);
+    expect(run("mergeCourses([{id:'x',data:()=>({title:'One'})}]).map(c=>c.title).join()")).toBe('One');
   });
 
   it("opens Notifications from the notification button", () => {
