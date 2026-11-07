@@ -28,3 +28,7 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Hosted website
+- Keep the uploaded learner experience in `public/technotrade.html`; preserve its Firebase integration and shared account behavior when making presentation changes.
+- Refresh data without restarting screen-specific listeners or resetting the user's scroll and form input; navigation alone resets scroll.
