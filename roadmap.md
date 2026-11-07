@@ -1,4 +1,4 @@
 # Mobile website fixes
-- [ ] Fix narrow-screen layouts, profile styling, and touch targets.
-- [ ] Correct navigation and disruptive screen refreshes.
-- [ ] Verify phone layouts and available interactions; report sign-in verification limitations.
+- [x] Fix narrow-screen layouts, profile styling, and touch targets.
+- [x] Correct navigation and disruptive screen refreshes.
+- [x] Verify phone layouts and available interactions; signed-in layouts checked with presentation fixtures only, real sign-in and payments not verified.

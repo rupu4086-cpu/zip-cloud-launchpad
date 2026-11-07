@@ -25,8 +25,8 @@ describe("Hosted learner interactions", () => {
   });
 
   it("reuses the open course listener across refreshes", () => {
-    run(`let listenerCount = 0; db = {collection:()=>({doc:()=>({collection:()=>({orderBy:()=>({onSnapshot:()=>{listenerCount++; return ()=>{};}})})})})}; bindDetail('basics'); bindDetail('basics');`);
-    expect(run("listenerCount")).toBe(1);
+    const count = run(`let listenerCount = 0; db = {collection:()=>({doc:()=>({collection:()=>({orderBy:()=>({onSnapshot:()=>{listenerCount++; return ()=>{};}})})})})}; bindDetail('basics'); bindDetail('basics'); listenerCount;`);
+    expect(count).toBe(1);
   });
 
   it("preserves typed payment input during screen refresh", () => {

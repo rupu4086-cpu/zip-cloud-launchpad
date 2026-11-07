@@ -776,6 +776,7 @@ function render(){
   const view = $("view");
   if(!currentUser){
     renderBottomNav("");
+    if($("authEmail")) return;
     view.innerHTML = renderLogin();
     bindLogin();
     return;
