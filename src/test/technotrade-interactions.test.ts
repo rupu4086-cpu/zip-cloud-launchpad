@@ -34,9 +34,10 @@ describe("Hosted learner interactions", () => {
     expect(count).toBe(1);
   });
 
-  it("preserves typed payment input during screen refresh", () => {
-    run("location.hash='#/plans'; render(); document.getElementById('payIdInput').value='pay_user_input'; render()");
-    expect(document.querySelector<HTMLInputElement>('#payIdInput')?.value).toBe('pay_user_input');
+  it("shows a plain Buy button without the Already paid section", () => {
+    run("location.hash='#/plans'; render()");
+    expect(document.querySelector('[data-buy]')?.textContent).toBe('Buy');
+    expect(document.getElementById('payIdInput')).toBeNull();
   });
 
   it("closes a dialog with Escape", () => {
