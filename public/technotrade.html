@@ -1416,15 +1416,6 @@ function renderPlans(){
     '<div><span>💳</span>UPI · Card · NetBanking</div>' +
     '<div><span>✓</span>Instant access after payment</div></div>';
   html += '<p class="disclaimer">Payment happens on Razorpay\'s secure page — your plan shows active as soon as the payment is confirmed.</p>';
-  // Verify payment (web flow): check own captured payments, or verify with a Payment ID.
-  html += '<div class="card verify"><h2 style="margin:0 0 6px;font-size:16px;color:var(--navy)">Already paid?</h2>' +
-    '<p class="mut" style="margin:0 0 10px">If you paid on Razorpay\'s page, tap below to check. The payment record appears once Razorpay confirms it — if it is not found yet, wait a minute and try again. Until automatic confirmation is live, the admin confirms payments manually.</p>' +
-    '<button class="btn btn-navy" id="checkPaymentBtn">Check for my payment</button>' +
-    '<div style="height:10px"></div>' +
-    '<label for="payIdInput" style="margin-top:0">Or verify with your Razorpay Payment ID</label>' +
-    '<div class="row"><input id="payIdInput" type="text" placeholder="pay_… (from the Razorpay success page)">' +
-    '<button class="btn btn-white btn-sm" id="verifyIdBtn">Verify</button></div>' +
-    '<div id="verifyMsg" style="margin-top:10px"></div></div>';
   html += '<p class="disclaimer">' + DISCLAIMER + '</p><div style="height:16px"></div>';
   return html;
 }
