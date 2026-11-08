@@ -1193,8 +1193,7 @@ function renderPlans(){
     if(p.perLine) card += '<p class="perline">' + esc(p.perLine) + '</p>';
     card += '<ul>' + p.features.map(f => '<li><span>✓</span><span>' + esc(f) + '</span></li>').join("") +
       p.excluded.map(f => '<li class="x"><span class="no">✕</span><span>' + esc(f) + '</span></li>').join("") + '</ul>';
-    card += '<button class="btn ' + (featured ? "btn-gold" : "btn-white") + '" data-buy="' + p.id + '" ' + (buyEnabled ? "" : "disabled") + '>' +
-      (buyEnabled ? "Get " + p.name + " — " + p.price : "Payment links are not set yet") + '</button></div>';
+    card += '<button class="btn ' + (featured ? "btn-gold" : "btn-white") + '" data-buy="' + p.id + '">Buy</button></div>';
     return card;
   }).join("");
   html += '<div class="trust">' +
@@ -1202,15 +1201,221 @@ function renderPlans(){
     '<div><span>💳</span>UPI · Card · NetBanking</div>' +
     '<div><span>✓</span>Instant access after payment</div></div>';
   html += '<p class="disclaimer">Payment happens on Razorpay\'s secure page — your plan shows active as soon as the payment is confirmed.</p>';
-  // Verify payment (web flow): check own captured payments, or verify with a Payment ID.
-  html += '<div class="card verify"><h2 style="margin:0 0 6px;font-size:16px;color:var(--navy)">Already paid?</h2>' +
-    '<p class="mut" style="margin:0 0 10px">If you paid on Razorpay\'s page, tap below to check. The payment record appears once Razorpay confirms it — if it is not found yet, wait a minute and try again. Until automatic confirmation is live, the admin confirms payments manually.</p>' +
-    '<button class="btn btn-navy" id="checkPaymentBtn">Check for my payment</button>' +
-    '<div style="height:10px"></div>' +
-    '<label for="payIdInput" style="margin-top:0">Or verify with your Razorpay Payment ID</label>' +
-    '<div class="row"><input id="payIdInput" type="text" placeholder="pay_… (from the Razorpay success page)">' +
-    '<button class="btn btn-white btn-sm" id="verifyIdBtn">Verify</button></div>' +
-    '<div id="verifyMsg" style="margin-top:10px"></div></div>';
+  html += '<p class="disclaimer">' + DISCLAIMER + '</p><div style="height:16px"></div>';
+  return html;
+}
+function bindDetail(courseId){
+  const course = courses.find(c => c.id === courseId);
+  if(!course) return;
+  if(detailCourseId !== courseId){
+  if(detailUnsub) { try{ detailUnsub(); }catch(e){} detailUnsub = null; }
+  detailCourseId = courseId;
+  detailUnsub = db.collection("courses").doc(courseId).collection("lessons").orderBy("order")
+    .onSnapshot(snap => {
+      detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+      const stats = detailLessons[courseId].reduce((acc, l) => ({count: acc.count + 1, totalDurationSec: acc.totalDurationSec + (l.durationSec || 0)}), {count:0, totalDurationSec:0});
+      lessonStats[courseId] = stats;
+      const r = currentRoute();
+      if(r.name === "course" && r.args[0] === courseId) render();
+    }, () => {
+      const r = currentRoute();
+      if(r.name === "course" && r.args[0] === courseId) toast("Could not load lessons — check your connection.");
+    });
+  }
+  document.querySelectorAll("[data-lesson]").forEach(el => {
+    el.addEventListener("click", e => {
+      if(e.target.closest("[data-dl]")) return; // download button has its own handler
+      onLessonTap(courseId, el.dataset.lesson);
+    });
+  });
+  document.querySelectorAll("[data-dl]").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const lesson = (detailLessons[courseId] || []).find(l => l.id === btn.dataset.dl);
+      if(lesson) startDownload(course, lesson);
+    });
+  });
+  const ctaWatch = $("ctaWatch");
+  if(ctaWatch) ctaWatch.addEventListener("click", () => {
+    const first = (detailLessons[courseId] || [])[0];
+    if(first) go("lesson/" + courseId + "/" + first.id);
+  });
+  const ctaSub = $("ctaSub");
+  if(ctaSub) ctaSub.addEventListener("click", () => {
+    plansNotice = 'Subscribe to watch "' + course.title + '".';
+    go("plans");
+  });
+}
+function onLessonTap(courseId, lessonId){
+  if(!canOpenCourse(courseId)){
+    plansNotice = "Subscribe to watch this course.";
+    go("plans");
+    return;
+  }
+  go("lesson/" + courseId + "/" + lessonId);
+}
+function onCourseFab(courseId){
+  if(!canOpenCourse(courseId)){
+    plansNotice = "Subscribe to watch this course.";
+    go("plans");
+    return;
+  }
+  const first = (detailLessons[courseId] || [])[0];
+  if(first) go("lesson/" + courseId + "/" + first.id);
+}
+function shareCourse(courseId){
+  const course = courses.find(c => c.id === courseId);
+  const text = 'Check out "' + (course ? course.title : "TechnoTrade Academy") + '" on TechnoTrade Academy — learn trading from basics to pro level.';
+  if(navigator.share){ navigator.share({text, url: location.href}).catch(() => {}); }
+  else if(navigator.clipboard){ navigator.clipboard.writeText(text + " " + location.href).then(() => toast("Link copied.")); }
+  else { toast("Copy the page link from your browser to share."); }
+}
+
+// ---------- Downloads (browser download of the video file) ----------
+function startDownload(course, lesson){
+  if(!lesson.videoUrl){ toast("This lesson has no video to download."); return; }
+  const url = toStreamableUrl(lesson.videoUrl);
+  const safeTitle = lesson.title.replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 40) || "lesson";
+  const fileName = safeTitle + "_" + lesson.id + ".mp4";
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.target = "_blank";
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  store.addDownload({
+    courseId: course.id, lessonId: lesson.id,
+    courseTitle: course.title, lessonTitle: lesson.title,
+    fileName: fileName, sizeBytes: 0, downloadedAt: Date.now(), status: "saved"
+  });
+  toast("Download started — find the file in your browser's Downloads.");
+}
+
+// ---------- Player ----------
+function renderPlayer(courseId, lessonId){
+  const course = courses.find(c => c.id === courseId);
+  if(!course) return '<div class="loading">Course not found.</div>';
+  const lessons = detailLessons[courseId] || [];
+  const lesson = lessons.find(l => l.id === lessonId);
+  if(!lesson) return '<div class="loading">Loading lesson…</div>';
+  const allowed = canOpenCourse(courseId);
+  if(!allowed){
+    return '<div class="player-wrap">' +
+      '<button class="backbtn" onclick="history.back()">←</button>' +
+      '<h1>🔒 This lesson is locked</h1>' +
+      '<p>A subscription is needed to watch lessons' + (courseNeedsYearly(courseId) ? ' — this course needs the Yearly plan.' : '.') + '</p>' +
+      '<button class="btn btn-gold" onclick="plansNotice=\'Subscribe to watch this course.\';go(\'plans\')">Subscribe and learn</button></div>';
+  }
+  const idx = lessons.findIndex(l => l.id === lessonId);
+  const prev = idx > 0 ? lessons[idx - 1] : null;
+  const next = idx >= 0 && idx < lessons.length - 1 ? lessons[idx + 1] : null;
+  const done = store.isCompleted(courseId, lessonId);
+  const url = toStreamableUrl(lesson.videoUrl);
+  let html = '<div class="player-wrap">' +
+    '<button class="backbtn" onclick="history.back()" style="margin-bottom:10px">←</button>' +
+    '<video id="lessonVideo" controls playsinline preload="metadata" src="' + esc(url) + '"></video>' +
+    '<div id="videoFallback" class="hide" style="margin-top:10px"><div class="err-box" style="margin:0">This video did not load in the browser player. ' +
+    '<a href="' + esc(url) + '" target="_blank" rel="noopener">Open the video in a new tab</a> or ' +
+    (extractDriveId(lesson.videoUrl) ? '<a href="https://drive.google.com/file/d/' + esc(extractDriveId(lesson.videoUrl)) + '/view" target="_blank" rel="noopener">open it in Drive</a>.' : "") +
+    '</div></div>' +
+    '<h1>' + esc(lesson.title) + '</h1>' +
+    '<p>' + esc(lesson.description || course.title) + '</p>' +
+    '<div class="player-actions">' +
+      (prev ? '<button onclick="go(\'lesson/' + esc(courseId) + '/' + esc(prev.id) + '\')">← Previous</button>' : '<button disabled>← Previous</button>') +
+      '<button id="completeBtn" class="' + (done ? "done" : "") + '">' + (done ? "✓ Completed" : "Mark as complete") + '</button>' +
+      (lesson.videoUrl ? '<button id="dlBtn">⬇ Download</button>' : "") +
+      (next ? '<button onclick="go(\'lesson/' + esc(courseId) + '/' + esc(next.id) + '\')">Next →</button>' : '<button disabled>Next →</button>') +
+    '</div></div>';
+  html += '<div class="upnext"><h3>Up next in this course</h3>';
+  if(!lessons.length){
+    html += '<div class="empty"><b>No lessons yet</b><p>Lessons for this course will appear here once added.</p></div>';
+  } else {
+    html += lessons.map(l => {
+      const isCurrent = l.id === lessonId;
+      const ldone = store.isCompleted(courseId, l.id);
+      return '<div class="lesson-row' + (isCurrent ? '" style="border-color:var(--gold);border-width:2px' : "") + '" data-upnext="' + esc(l.id) + '">' +
+        '<div class="ic">' + (isCurrent ? "▶" : (ldone ? "✓" : "▶")) + '</div>' +
+        '<div class="tx"><b>' + esc(l.title) + (isCurrent ? " — Playing" : "") + '</b><span>Video · ' + fmtMmSs(l.durationSec) + (ldone ? " · Completed" : "") + '</span></div></div>';
+    }).join("");
+  }
+  html += '</div>';
+  return html;
+}
+function bindPlayer(courseId, lessonId){
+  const video = $("lessonVideo");
+  if(video){
+    video.addEventListener("ended", () => {
+      store.markCompleted(courseId, lessonId);
+      const btn = $("completeBtn");
+      if(btn){ btn.textContent = "✓ Completed"; btn.classList.add("done"); }
+    });
+    video.addEventListener("error", () => { $("videoFallback").classList.remove("hide"); });
+  }
+  const completeBtn = $("completeBtn");
+  if(completeBtn) completeBtn.addEventListener("click", () => {
+    store.markCompleted(courseId, lessonId);
+    completeBtn.textContent = "✓ Completed";
+    completeBtn.classList.add("done");
+    toast("Marked as complete.");
+  });
+  const dlBtn = $("dlBtn");
+  if(dlBtn) dlBtn.addEventListener("click", () => {
+    const course = courses.find(c => c.id === courseId);
+    const lesson = (detailLessons[courseId] || []).find(l => l.id === lessonId);
+    if(course && lesson) startDownload(course, lesson);
+  });
+  document.querySelectorAll("[data-upnext]").forEach(el => {
+    el.addEventListener("click", () => go("lesson/" + courseId + "/" + el.dataset.upnext));
+  });
+  // Make sure this course's lessons are loaded (deep link straight to a lesson).
+  if(!(detailLessons[courseId] || []).length){
+    db.collection("courses").doc(courseId).collection("lessons").orderBy("order").get()
+      .then(snap => {
+        detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+        const r = currentRoute();
+        if(r.name === "lesson" && r.args[0] === courseId) render();
+      }).catch(() => {});
+  }
+}
+
+// ---------- Plans + payment verification ----------
+function renderPlans(){
+  const a = access();
+  const cfg = paymentConfig;
+  let html = '<div class="subhead"><button class="backbtn" onclick="go(\'home\')">←</button><h2>Membership</h2></div>';
+  html += '<div class="plans-hd"><h1>One plan, all courses</h1>' +
+    '<p>Whichever plan you choose, its courses and lessons unlock instantly.</p></div>';
+  html += '<div class="toggle">' +
+    '<button data-plan="monthly" class="' + (selectedPlan === "monthly" ? "on" : "") + '">Monthly</button>' +
+    '<button data-plan="yearly" class="' + (selectedPlan === "yearly" ? "on" : "") + '">Yearly · Best Value</button></div>';
+  if(plansNotice){
+    html += '<div class="warn-box">' + esc(plansNotice) + '</div>';
+  }
+  html += '<div style="padding:0 16px 12px"><p class="mut" style="margin:0">' +
+    (a.hasActiveSubscription
+      ? "Subscription active — Plan: " + esc(a.planId || "") + " • Valid till " + fmtDate(a.expiresAt)
+      : "No active subscription — Subscribe to unlock all video lessons.") +
+    '</p></div>';
+  html += PLANS.map(p => {
+    const featured = p.id === "yearly";
+    const link = p.id === "yearly" ? cfg.yearlyLink : cfg.monthlyLink;
+    const buyEnabled = !!(cfg.enabled && link);
+    let card = '<div class="plan ' + (featured ? "navy" : "white") + (selectedPlan === p.id ? " sel" : "") + '" data-plancard="' + p.id + '">';
+    if(featured) card += '<span class="badge-best">BEST VALUE · SAVE 75%</span>';
+    card += '<div class="top"><b>' + esc(p.name.toUpperCase()) + '</b><span class="amt">' + p.price + '</span><span class="per">' + p.per + '</span></div>';
+    if(p.perLine) card += '<p class="perline">' + esc(p.perLine) + '</p>';
+    card += '<ul>' + p.features.map(f => '<li><span>✓</span><span>' + esc(f) + '</span></li>').join("") +
+      p.excluded.map(f => '<li class="x"><span class="no">✕</span><span>' + esc(f) + '</span></li>').join("") + '</ul>';
+    card += '<button class="btn ' + (featured ? "btn-gold" : "btn-white") + '" data-buy="' + p.id + '">Buy</button></div>';
+    return card;
+  }).join("");
+  html += '<div class="trust">' +
+    '<div><span>🛡</span>Razorpay secure payment</div>' +
+    '<div><span>💳</span>UPI · Card · NetBanking</div>' +
+    '<div><span>✓</span>Instant access after payment</div></div>';
+  html += '<p class="disclaimer">Payment happens on Razorpay\'s secure page — your plan shows active as soon as the payment is confirmed.</p>';
   html += '<p class="disclaimer">' + DISCLAIMER + '</p><div style="height:16px"></div>';
   return html;
 }
@@ -1230,12 +1435,6 @@ function bindPlans(){
       const link = b.dataset.buy === "yearly" ? paymentConfig.yearlyLink : paymentConfig.monthlyLink;
       if(link) window.open(link, "_blank", "noopener");
     });
-  });
-  $("checkPaymentBtn").addEventListener("click", () => checkMyPayment());
-  $("verifyIdBtn").addEventListener("click", () => {
-    const id = $("payIdInput").value.trim();
-    if(!id) return verifyMsg("Enter your Razorpay Payment ID (it starts with pay_…).", "err");
-    verifyPaymentId(id);
   });
 }
 function verifyMsg(text, kind){
