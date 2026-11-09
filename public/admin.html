@@ -231,7 +231,7 @@ let currentUser=null,isAdmin=false,accessVersion=0,liveChannel=null;
 function showAccessCard(name){$("authCard").classList.toggle("hide",name!=="auth");$("deniedCard").classList.toggle("hide",name!=="denied");$("app").classList.toggle("hide",name!=="app");}
 async function signInGoogle(){const {error}=await supabaseClient.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+"/admin.html"}});if(error)showMsg($("authMsg"),errorText(error),"err");}
 async function signInWithEmail(){const email=$("authEmail").value.trim(),password=$("authPassword").value;if(!email||!password)return showMsg($("authMsg"),"Enter your email and password.","err");$("emailSignInBtn").disabled=true;const {error}=await supabaseClient.auth.signInWithPassword({email,password});$("emailSignInBtn").disabled=false;if(error)showMsg($("authMsg"),errorText(error),"err");}
-async function sendPasswordReset(){const email=$("authEmail").value.trim();if(!email)return showMsg($("authMsg"),"Enter your email first.","err");const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:location.origin+"/technotrade.html"});showMsg($("authMsg"),error?errorText(error):"Password email sent. Open it and follow the instructions.",error?"err":"ok");}
+async function sendPasswordReset(){const email=$("authEmail").value.trim();if(!email)return showMsg($("authMsg"),"Enter your email first.","err");const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:location.origin+"/reset-password.html"});showMsg($("authMsg"),error?errorText(error):"Password email sent. Open it and follow the instructions.",error?"err":"ok");}
 function signOut(){return supabaseClient.auth.signOut();}
 async function refreshAccess(){
   const version=++accessVersion;
