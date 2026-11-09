@@ -353,9 +353,9 @@
          ========================================================================== */
 
       // ---------- Supabase config (Lovable Cloud) ----------
-        const SUPABASE_URL = "https://kgoptzoxvcfianbrlpsz.supabase.co";
+        const SUPABASE_URL = "https://kgoptzoxvcfianbrlpsz.supabaseClient.co";
         const SUPABASE_ANON_KEY = "sb_publishable_7NeQIXhFI3PTnKVr7VntFQ_zq-ps6qs";
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       const ADMIN_EMAIL = "rupu4086@gmail.com";
       const SUPPORT_EMAIL = "rupu4086@gmail.com";
       const WEB_VERSION = "1.0";
@@ -603,21 +603,21 @@
           return m;
           }
       async function ensureUserDoc(displayName){
-        const { data: { user: u } } = await supabase.auth.getUser();
+        const { data: { user: u } } = await supabaseClient.auth.getUser();
           if(!u) return;
           const meta = u.user_metadata || {};
           const name = meta.display_name || meta.full_name || meta.name || displayName || "";
           const row = {id: u.id, email: u.email || ""};
           if(name) row.display_name = name;
-          await supabase.from("users").upsert(row, {onConflict: "id"});
+          await supabaseClient.from("users").upsert(row, {onConflict: "id"});
       }
       async function signInEmail(email, password){
-        const { error } = await supabase.auth.signInWithPassword({email, password});
+        const { error } = await supabaseClient.auth.signInWithPassword({email, password});
           if(error) throw error;
           await ensureUserDoc();
       }
           async function signUpEmail(email, password, name){
-            const { error } = await supabase.auth.signUp({email, password, options: {data: {display_name: name || ""}}});
+            const { error } = await supabaseClient.auth.signUp({email, password, options: {data: {display_name: name || ""}}});
           if(error) throw error;
           await ensureUserDoc(name);
           }
@@ -625,22 +625,22 @@
         // Supabase Google sign-in is a redirect flow: after Google approves,
         // the browser returns here and the auth-state handler below runs
         // ensureUserDoc() and loads the account.
-        const { error } = await supabase.auth.signInWithOAuth({
+        const { error } = await supabaseClient.auth.signInWithOAuth({
           provider: "google",
           options: { redirectTo: location.origin + location.pathname }
         });
         if(error) throw error;
       }
       async function sendPasswordReset(email){
-        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
         if(error) throw error;
       }
-      function signOut(){ return supabase.auth.signOut(); }
+      function signOut(){ return supabaseClient.auth.signOut(); }
 
       // ---------- Supabase data (live — admin changes reflect instantly) ----------
       function stopListeners(){ unsubscribers.forEach(fn => { try{ fn(); }catch(e){} }); unsubscribers = []; }
       async function loadCourses(){
-        const { data, error } = await supabase.from("courses").select("*").order("order");
+        const { data, error } = await supabaseClient.from("courses").select("*").order("order");
         if(error) throw error;
         courses = mergeCourses(data || []);
         coursesLoaded = true;
@@ -649,7 +649,7 @@
         render();
       }
       async function loadPaymentConfig(){
-        const { data, error } = await supabase.from("payment_config").select("*").limit(1).maybeSingle();
+        const { data, error } = await supabaseClient.from("payment_config").select("*").limit(1).maybeSingle();
         if(error) throw error;
         paymentConfig = data ? {monthlyLink: data.monthly_link || "", yearlyLink: data.yearly_link || "", enabled: !!data.enabled}
                              : {monthlyLink:"", yearlyLink:"", enabled:false};
@@ -657,7 +657,7 @@
       }
       async function loadSubscription(){
         if(!currentUser){ subscription = null; return; }
-        const { data, error } = await supabase.from("subscriptions").select("*")
+        const { data, error } = await supabaseClient.from("subscriptions").select("*")
           .eq("user_id", currentUser.id).eq("status", "active")
           .order("expires_at", {ascending: false}).limit(1).maybeSingle();
         if(error){ subscription = null; render(); return; }
@@ -707,18 +707,18 @@
         // supabase_realtime publication. If live updates do not arrive, run in
         // the Supabase SQL editor:
         //   alter publication supabase_realtime add table courses, lessons, payment_config, subscriptions;
-        const ch = supabase.channel("tt-live")
+        const ch = supabaseClient.channel("tt-live")
           .on("postgres_changes", {event: "*", schema: "public", table: "courses"}, () => loadCourses().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "payment_config"}, () => loadPaymentConfig().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "subscriptions"}, () => loadSubscription())
           .subscribe();
-        unsubscribers.push(() => { supabase.removeChannel(ch); });
+        unsubscribers.push(() => { supabaseClient.removeChannel(ch); });
       }
       function refreshLessonStats(){
         // Lesson counts/durations per course — real lessons only.
         courses.forEach(c => {
           if(lessonStats[c.id]) return; // keep existing; detail screen loads per-course live
-          supabase.from("lessons").select("duration_sec").eq("course_id", c.id).then(({data, error}) => {
+          supabaseClient.from("lessons").select("duration_sec").eq("course_id", c.id).then(({data, error}) => {
             if(error) return;
             let count = 0, total = 0;
             (data || []).forEach(l => { count++; total += (l.duration_sec || 0); });
@@ -728,7 +728,7 @@
         });
       }
       async function loadDetailLessons(courseId){
-        const { data, error } = await supabase.from("lessons").select("*").eq("course_id", courseId).order("order");
+        const { data, error } = await supabaseClient.from("lessons").select("*").eq("course_id", courseId).order("order");
         if(error){
           const r = currentRoute();
           if(r.name === "course" && r.args[0] === courseId) toast("Could not load lessons — check your connection.");
@@ -1032,11 +1032,11 @@
         if(detailUnsub) { try{ detailUnsub(); }catch(e){} detailUnsub = null; }
         detailCourseId = courseId;
         loadDetailLessons(courseId);
-        const ch = supabase.channel("tt-lessons-" + courseId)
+        const ch = supabaseClient.channel("tt-lessons-" + courseId)
           .on("postgres_changes", {event: "*", schema: "public", table: "lessons", filter: "course_id=eq." + courseId},
             () => loadDetailLessons(courseId))
           .subscribe();
-        detailUnsub = () => { supabase.removeChannel(ch); };
+        detailUnsub = () => { supabaseClient.removeChannel(ch); };
         }
         document.querySelectorAll("[data-lesson]").forEach(el => {
           el.addEventListener("click", e => {
@@ -1237,11 +1237,11 @@
         if(detailUnsub) { try{ detailUnsub(); }catch(e){} detailUnsub = null; }
         detailCourseId = courseId;
         loadDetailLessons(courseId);
-        const ch = supabase.channel("tt-lessons-" + courseId)
+        const ch = supabaseClient.channel("tt-lessons-" + courseId)
           .on("postgres_changes", {event: "*", schema: "public", table: "lessons", filter: "course_id=eq." + courseId},
             () => loadDetailLessons(courseId))
           .subscribe();
-        detailUnsub = () => { supabase.removeChannel(ch); };
+        detailUnsub = () => { supabaseClient.removeChannel(ch); };
         }
         document.querySelectorAll("[data-lesson]").forEach(el => {
           el.addEventListener("click", e => {
@@ -1470,7 +1470,7 @@
         const plan = planById(record.planId);
         if(!plan) throw new Error("Unknown plan on this payment record.");
         const {now, exp} = subDatesFor(plan);
-        const { error } = await supabase.from("subscriptions").insert({
+        const { error } = await supabaseClient.from("subscriptions").insert({
           user_id: record.userId, plan_id: record.planId, status: "active",
           expires_at: exp.toISOString()
         });
@@ -1485,7 +1485,7 @@
         verifyMsg("", "");
         try{
           const uid = currentUser.id;
-          const { data, error } = await supabase.from("payments").select("*").eq("user_id", uid).order("created_at", {ascending: false});
+          const { data, error } = await supabaseClient.from("payments").select("*").eq("user_id", uid).order("created_at", {ascending: false});
           if(error) throw error;
           const mine = (data || []).map(normalizePayment).filter(p => p.status === "captured");
           mine.sort((a, b) => {
@@ -1517,7 +1517,7 @@
         verifyMsg("", "");
         try{
           const uid = currentUser.id;
-          const { data: row, error } = await supabase.from("payments").select("*").eq("id", payId).maybeSingle();
+          const { data: row, error } = await supabaseClient.from("payments").select("*").eq("id", payId).maybeSingle();
           if(error) throw error;
           if(!row){
             verifyMsg("No payment found with that ID yet. Check the ID (it starts with pay_…) or wait a minute and try again.", "warn");
@@ -1545,7 +1545,7 @@
             // Claim: attach this unassigned payment to the caller's own account.
             // Needs an UPDATE policy for unclaimed rows (user_id IS NULL) — see
             // the payments-claim policy in the Supabase SQL migration file.
-            const { error: claimErr } = await supabase.from("payments").update({user_id: uid}).eq("id", payId);
+            const { error: claimErr } = await supabaseClient.from("payments").update({user_id: uid}).eq("id", payId);
             if(claimErr) throw claimErr;
             rec.userId = uid;
           }
@@ -1684,7 +1684,7 @@
       function bindPaymentHistory(){
         if(paymentHistoryLoading || paymentHistory !== null) return;
         paymentHistoryLoading = true;
-        supabase.from("payments").select("*").eq("user_id", currentUser.id).order("created_at", {ascending: false})
+        supabaseClient.from("payments").select("*").eq("user_id", currentUser.id).order("created_at", {ascending: false})
           .then(({data, error}) => {
             if(error) throw error;
             const list = (data || []).map(normalizePayment);
@@ -1753,7 +1753,7 @@
         return {uid: user.id, id: user.id, email: user.email || "", displayName: displayName};
       }
       let lastAuthUid = undefined;
-      supabase.auth.onAuthStateChange((event, session) => {
+      supabaseClient.auth.onAuthStateChange((event, session) => {
         const user = session ? session.user : null;
         const uid = user ? user.id : null;
         if(event === "TOKEN_REFRESHED" && uid === lastAuthUid) return; // silent refresh: nothing to redo
