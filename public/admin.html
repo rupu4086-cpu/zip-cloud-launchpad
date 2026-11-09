@@ -238,7 +238,7 @@ async function refreshAccess(){
   stopLive();
   const {data:{user},error}=await supabaseClient.auth.getUser();
   if(version!==accessVersion)return;
-  if(error){showAccessCard("auth");showMsg($("authMsg"),errorText(error),"err");return;}
+  if(error){showAccessCard("auth");if(!/auth session missing/i.test(errorText(error)))showMsg($("authMsg"),errorText(error),"err");return;}
   currentUser=user;isAdmin=false;
   if(!user){showAccessCard("auth");return;}
   const {data:role,error:roleError}=await supabaseClient.from("user_roles").select("role").eq("user_id",user.id).eq("role","admin").maybeSingle();
