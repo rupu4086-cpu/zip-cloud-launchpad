@@ -597,14 +597,14 @@
       }
       function thumbFor(course){
         if(course.thumbnailUrl) return driveThumb(course.thumbnailUrl);
-        return thumbPlaceholder(course.id);
-      }
+          return thumbPlaceholder(course.id);
 
-      // ---------- auth ----------
-      function authErrorText(e){
-        const m = (e && e.message) || "Sign-in failed.";
-        return m.replace("Firebase: ", "");
       }
+          function authErrorText(e){
+            const m = (e && e.message) || "Sign-in failed.";
+          if(/invalid login credentials/i.test(m)) return "Incorrect email or password. Please try again.";
+          return m;
+          }
       async function ensureUserDoc(displayName){
         const u = firebase.auth().currentUser;
         if(!u) return;
