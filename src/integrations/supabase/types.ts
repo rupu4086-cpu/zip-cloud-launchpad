@@ -14,7 +14,168 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      courses: {
+        Row: {
+          description: string
+          id: string
+          order: number
+          thumbnail_url: string
+          title: string
+        }
+        Insert: {
+          description?: string
+          id: string
+          order?: number
+          thumbnail_url?: string
+          title: string
+        }
+        Update: {
+          description?: string
+          id?: string
+          order?: number
+          thumbnail_url?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      lessons: {
+        Row: {
+          course_id: string
+          description: string
+          duration_sec: number
+          id: string
+          order: number
+          title: string
+          video_url: string
+        }
+        Insert: {
+          course_id: string
+          description?: string
+          duration_sec?: number
+          id: string
+          order?: number
+          title: string
+          video_url?: string
+        }
+        Update: {
+          course_id?: string
+          description?: string
+          duration_sec?: number
+          id?: string
+          order?: number
+          title?: string
+          video_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lessons_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_config: {
+        Row: {
+          enabled: boolean
+          monthly_link: string
+          yearly_link: string
+        }
+        Insert: {
+          enabled?: boolean
+          monthly_link?: string
+          yearly_link?: string
+        }
+        Update: {
+          enabled?: boolean
+          monthly_link?: string
+          yearly_link?: string
+        }
+        Relationships: []
+      }
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          plan_id: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          id: string
+          plan_id: string
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          plan_id?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscriptions: {
+        Row: {
+          expires_at: string | null
+          plan_id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          expires_at?: string | null
+          plan_id: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          expires_at?: string | null
+          plan_id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          display_name: string | null
+          email: string
+          id: string
+        }
+        Insert: {
+          display_name?: string | null
+          email: string
+          id: string
+        }
+        Update: {
+          display_name?: string | null
+          email?: string
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
