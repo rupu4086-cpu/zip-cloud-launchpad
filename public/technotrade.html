@@ -14,19 +14,17 @@
   ========================================================================================
   The user-facing website for TechnoTrade Academy. Same account, same courses,
   same subscription as the Android app (Telegram-style: one login works on
-  both app and web). Shares the app's Firebase backend:
-  project "technotrade-36811", Firestore collections courses/lessons,
-  config/payment, subscriptions, payments, users.
+  both app and web). Backend is Lovable Cloud (Supabase): tables courses /
+  lessons / payment_config / subscriptions / payments / users.
   ========================================================================================
-  FIREBASE WEB CONFIG — all values below are public client identifiers from
-  Rupu's own Firebase project "technotrade-36811" (same values as the admin
-  panel). Web appId 1:916959828336:web:6134b55b325277c4bb97b5.
-  NEVER paste any secret in this file: no Razorpay Key Secret, no webhook
-  secret, no service-account material, no passwords. Payment links are
-  public checkout URLs read from Firestore doc config/payment — never keys.
-  Deploy: see website/README.md (Netlify drag-and-drop as a NEW site, then
-  add the new domain to Firebase Console → Authentication → Settings →
-  Authorized domains).
+  SUPABASE CONFIG — the publishable key below is a public client identifier
+  (safe to ship in browser code). NEVER paste any secret in this file: no
+  Razorpay Key Secret, no webhook secret, no service-role key, no passwords.
+  Payment links are public checkout URLs read from the payment_config
+  table — never keys.
+  Deploy: Lovable hosting (this project). Google sign-in is managed by
+  Lovable in Supabase Auth; keep this site's URL in the Supabase Site URL
+  and Redirect URLs.
   ========================================================================================
 -->
     <link
@@ -349,9 +347,9 @@
       "use strict";
       /* ==========================================================================
          TechnoTrade Academy — learner website (v1.0)
-         Same account, courses and subscription as the Android app. Firestore is
+         Same account, courses and subscription as the Android app. Supabase is
          the source of truth; the 7 category shells below are static (same as the
-         app's CATEGORIES) and merge with live Firestore docs.
+         app's CATEGORIES) and merge with live Supabase rows.
          ========================================================================== */
 
       // ---------- Supabase config (Lovable Cloud) ----------
@@ -552,14 +550,13 @@
       };
 
       // ---------- app state ----------
-      let db = null;
       let currentUser = null;
       let coursesLoaded = false;
-      let courses = [];          // merged shells + Firestore docs (app order)
+      let courses = [];          // merged Supabase rows (app order)
       let lessonStats = {};      // courseId -> {count, totalDurationSec}
       let subscription = null;   // active sub doc or null
       let paymentConfig = {monthlyLink:"", yearlyLink:"", enabled:false};
-      let firestoreError = null; // honest error text when listeners fail
+      let dataError = null; // honest error text when listeners fail
       let plansNotice = null;    // one-line note on Plans after a locked tap
       let selectedPlan = "yearly";
       let homeQuery = "", homeChip = "All";
@@ -625,82 +622,123 @@
           await ensureUserDoc(name);
           }
       async function signInGoogle(){
-        const provider = new firebase.auth.GoogleAuthProvider();
-        try{
-          await firebase.auth().signInWithPopup(provider);
-          await ensureUserDoc();
-        }catch(e){
-          // Popup is blocked in some embedded browsers — fall back to redirect.
-          if(e && (e.code === "auth/popup-blocked" || e.code === "auth/popup-closed-by-user" ||
-                   e.code === "auth/operation-not-supported-in-this-environment" ||
-                   e.code === "auth/cancelled-popup-request")){
-            await firebase.auth().signInWithRedirect(provider);
-          } else {
-            throw e;
-          }
-        }
+        // Supabase Google sign-in is a redirect flow: after Google approves,
+        // the browser returns here and the auth-state handler below runs
+        // ensureUserDoc() and loads the account.
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: location.origin + location.pathname }
+        });
+        if(error) throw error;
       }
       async function sendPasswordReset(email){
-        await firebase.auth().sendPasswordResetEmail(email);
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        if(error) throw error;
       }
-      function signOut(){ return firebase.auth().signOut(); }
+      function signOut(){ return supabase.auth.signOut(); }
 
-      // ---------- Firestore listeners (live — admin changes reflect instantly) ----------
+      // ---------- Supabase data (live — admin changes reflect instantly) ----------
       function stopListeners(){ unsubscribers.forEach(fn => { try{ fn(); }catch(e){} }); unsubscribers = []; }
+      async function loadCourses(){
+        const { data, error } = await supabase.from("courses").select("*").order("order");
+        if(error) throw error;
+        courses = mergeCourses(data || []);
+        coursesLoaded = true;
+        dataError = null;
+        refreshLessonStats();
+        render();
+      }
+      async function loadPaymentConfig(){
+        const { data, error } = await supabase.from("payment_config").select("*").limit(1).maybeSingle();
+        if(error) throw error;
+        paymentConfig = data ? {monthlyLink: data.monthly_link || "", yearlyLink: data.yearly_link || "", enabled: !!data.enabled}
+                             : {monthlyLink:"", yearlyLink:"", enabled:false};
+        render();
+      }
+      async function loadSubscription(){
+        if(!currentUser){ subscription = null; return; }
+        const { data, error } = await supabase.from("subscriptions").select("*")
+          .eq("user_id", currentUser.id).eq("status", "active")
+          .order("expires_at", {ascending: false}).limit(1).maybeSingle();
+        if(error){ subscription = null; render(); return; }
+        subscription = data ? normalizeSubscription(data) : null;
+        render();
+      }
 
-      function mergeCourses(docs){
-        // Admin Dashboard (Firestore "courses") is the only source; no default/sample courses.
-        return docs.map((d, i) => {
-          const data = d.data() || {};
-          return {id: d.id, title: (data.title || "").trim() || d.id, description: data.description || "",
-            category: courseCategoryLabel(d.id) || data.category || "", thumbnailUrl: data.thumbnailUrl || "",
-            order: (typeof data.order === "number") ? data.order : i,
-            rating: (typeof data.rating === "number") ? data.rating : 0,
-            reviewCount: (typeof data.reviewCount === "number") ? data.reviewCount : 0,
-            published: data.published !== false && data.isPublished !== false};
+      function mergeCourses(rows){
+        // Admin Dashboard ("courses" table) is the only source; no default/sample courses.
+        return (rows || []).map((row, i) => {
+          return {id: row.id, title: (row.title || "").trim() || row.id, description: row.description || "",
+            category: courseCategoryLabel(row.id) || "", thumbnailUrl: row.thumbnail_url || "",
+            order: (typeof row.order === "number") ? row.order : i,
+            rating: 0, reviewCount: 0, published: true};
         }).filter(c => c.published).sort((a, b) => (a.order || 0) - (b.order || 0));
+      }
+      // Row -> UI shape, so the render code below never sees snake_case.
+      function normalizeLesson(row){
+        return {id: row.id, course_id: row.course_id, title: row.title || "", description: row.description || "",
+          videoUrl: row.video_url || "", video_url: row.video_url || "",
+          durationSec: row.duration_sec || 0, duration_sec: row.duration_sec || 0, order: row.order || 0};
+      }
+      function normalizePayment(row){
+        const createdSec = row.created_at ? Math.floor(Date.parse(row.created_at) / 1000) : 0;
+        return {id: row.id, userId: row.user_id || "", planId: row.plan_id || "", status: row.status || "",
+          amountPaise: (typeof row.amount === "number") ? row.amount : 0,
+          razorpayPaymentId: row.id, createdAt: {seconds: createdSec}};
+      }
+      // expiresAt keeps a .toDate() method so access() and fmtDate() work unchanged.
+      function normalizeSubscription(row){
+        const exp = row.expires_at ? new Date(row.expires_at) : null;
+        return {planId: row.plan_id, status: row.status,
+          expiresAt: exp ? {toDate: () => exp} : null};
       }
 
       function startListeners(){
         stopListeners();
-        firestoreError = null;
-        // Courses (live).
-        unsubscribers.push(db.collection("courses").orderBy("order").onSnapshot(snap => {
-          courses = mergeCourses(snap.docs);
-          coursesLoaded = true;
-          firestoreError = null;
-          refreshLessonStats();
+        dataError = null;
+        loadCourses().catch(e => {
+          dataError = "Could not reach the server — check your connection and try again. (" + authErrorText(e) + ")";
           render();
-        }, e => {
-          firestoreError = "Could not reach the server — check your connection and try again. (" + authErrorText(e) + ")";
-          render();
-        }));
-        // Payment config (live).
-        unsubscribers.push(db.collection("config").doc("payment").onSnapshot(snap => {
-          paymentConfig = snap.exists ? Object.assign({monthlyLink:"", yearlyLink:"", enabled:false}, snap.data()) : {monthlyLink:"", yearlyLink:"", enabled:false};
-          render();
-        }, () => { /* config failure is non-fatal: Buy buttons stay disabled */ }));
-        // Subscription (live, per signed-in user).
-        if(currentUser){
-          unsubscribers.push(db.collection("subscriptions").doc(currentUser.uid).onSnapshot(snap => {
-            subscription = snap.exists ? snap.data() : null;
-            render();
-          }, () => { subscription = null; render(); }));
-        } else {
-          subscription = null;
-        }
+        });
+        loadPaymentConfig().catch(() => { /* config failure is non-fatal: Buy buttons stay disabled */ });
+        loadSubscription();
+        // Live updates: re-fetch when the tables change (admin edits reflect instantly).
+        // NOTE: postgres_changes only fires for tables added to the
+        // supabase_realtime publication. If live updates do not arrive, run in
+        // the Supabase SQL editor:
+        //   alter publication supabase_realtime add table courses, lessons, payment_config, subscriptions;
+        const ch = supabase.channel("tt-live")
+          .on("postgres_changes", {event: "*", schema: "public", table: "courses"}, () => loadCourses().catch(() => {}))
+          .on("postgres_changes", {event: "*", schema: "public", table: "payment_config"}, () => loadPaymentConfig().catch(() => {}))
+          .on("postgres_changes", {event: "*", schema: "public", table: "subscriptions"}, () => loadSubscription())
+          .subscribe();
+        unsubscribers.push(() => { supabase.removeChannel(ch); });
       }
       function refreshLessonStats(){
-        // Lesson counts/durations per course — real Firestore lessons only.
+        // Lesson counts/durations per course — real lessons only.
         courses.forEach(c => {
           if(lessonStats[c.id]) return; // keep existing; detail screen loads per-course live
-          db.collection("courses").doc(c.id).collection("lessons").get().then(snap => {
+          supabase.from("lessons").select("duration_sec").eq("course_id", c.id).then(({data, error}) => {
+            if(error) return;
             let count = 0, total = 0;
-            snap.forEach(d => { count++; total += (d.data().durationSec || 0); });
+            (data || []).forEach(l => { count++; total += (l.duration_sec || 0); });
             lessonStats[c.id] = {count, totalDurationSec: total};
             render();
           }).catch(() => {});
         });
+      }
+      async function loadDetailLessons(courseId){
+        const { data, error } = await supabase.from("lessons").select("*").eq("course_id", courseId).order("order");
+        if(error){
+          const r = currentRoute();
+          if(r.name === "course" && r.args[0] === courseId) toast("Could not load lessons — check your connection.");
+          return;
+        }
+        detailLessons[courseId] = (data || []).map(normalizeLesson);
+        const stats = detailLessons[courseId].reduce((acc, l) => ({count: acc.count + 1, totalDurationSec: acc.totalDurationSec + (l.durationSec || 0)}), {count:0, totalDurationSec:0});
+        lessonStats[courseId] = stats;
+        const r = currentRoute();
+        if((r.name === "course" || r.name === "lesson") && r.args[0] === courseId) render();
       }
 
       // ---------- router ----------
@@ -878,12 +916,12 @@
         html += '<div class="chips">' + TOPIC_CHIPS.map(c =>
           '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
         html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + ' courses</span></div>';
-        if(firestoreError){
-          html += '<div class="err-box">' + esc(firestoreError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
+        if(dataError){
+          html += '<div class="err-box">' + esc(dataError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
         }
-        if(!coursesLoaded && !firestoreError){
+        if(!coursesLoaded && !dataError){
           html += '<div class="loading">Loading courses…</div>';
-        } else if(!courses.length && !firestoreError){
+        } else if(!courses.length && !dataError){
           html += '<div class="empty"><b>No courses yet</b><p>Courses will appear here once added.</p></div>';
         } else if(!visible.length){
           html += '<div class="empty"><b>No courses found</b><p>Try a different search or topic.</p></div>';
@@ -993,17 +1031,12 @@
         if(detailCourseId !== courseId){
         if(detailUnsub) { try{ detailUnsub(); }catch(e){} detailUnsub = null; }
         detailCourseId = courseId;
-        detailUnsub = db.collection("courses").doc(courseId).collection("lessons").orderBy("order")
-          .onSnapshot(snap => {
-            detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
-            const stats = detailLessons[courseId].reduce((acc, l) => ({count: acc.count + 1, totalDurationSec: acc.totalDurationSec + (l.durationSec || 0)}), {count:0, totalDurationSec:0});
-            lessonStats[courseId] = stats;
-            const r = currentRoute();
-            if(r.name === "course" && r.args[0] === courseId) render();
-          }, () => {
-            const r = currentRoute();
-            if(r.name === "course" && r.args[0] === courseId) toast("Could not load lessons — check your connection.");
-          });
+        loadDetailLessons(courseId);
+        const ch = supabase.channel("tt-lessons-" + courseId)
+          .on("postgres_changes", {event: "*", schema: "public", table: "lessons", filter: "course_id=eq." + courseId},
+            () => loadDetailLessons(courseId))
+          .subscribe();
+        detailUnsub = () => { supabase.removeChannel(ch); };
         }
         document.querySelectorAll("[data-lesson]").forEach(el => {
           el.addEventListener("click", e => {
@@ -1154,12 +1187,7 @@
         });
         // Make sure this course's lessons are loaded (deep link straight to a lesson).
         if(!(detailLessons[courseId] || []).length){
-          db.collection("courses").doc(courseId).collection("lessons").orderBy("order").get()
-            .then(snap => {
-              detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
-              const r = currentRoute();
-              if(r.name === "lesson" && r.args[0] === courseId) render();
-            }).catch(() => {});
+          loadDetailLessons(courseId);
         }
       }
 
@@ -1208,17 +1236,12 @@
         if(detailCourseId !== courseId){
         if(detailUnsub) { try{ detailUnsub(); }catch(e){} detailUnsub = null; }
         detailCourseId = courseId;
-        detailUnsub = db.collection("courses").doc(courseId).collection("lessons").orderBy("order")
-          .onSnapshot(snap => {
-            detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
-            const stats = detailLessons[courseId].reduce((acc, l) => ({count: acc.count + 1, totalDurationSec: acc.totalDurationSec + (l.durationSec || 0)}), {count:0, totalDurationSec:0});
-            lessonStats[courseId] = stats;
-            const r = currentRoute();
-            if(r.name === "course" && r.args[0] === courseId) render();
-          }, () => {
-            const r = currentRoute();
-            if(r.name === "course" && r.args[0] === courseId) toast("Could not load lessons — check your connection.");
-          });
+        loadDetailLessons(courseId);
+        const ch = supabase.channel("tt-lessons-" + courseId)
+          .on("postgres_changes", {event: "*", schema: "public", table: "lessons", filter: "course_id=eq." + courseId},
+            () => loadDetailLessons(courseId))
+          .subscribe();
+        detailUnsub = () => { supabase.removeChannel(ch); };
         }
         document.querySelectorAll("[data-lesson]").forEach(el => {
           el.addEventListener("click", e => {
@@ -1369,12 +1392,7 @@
         });
         // Make sure this course's lessons are loaded (deep link straight to a lesson).
         if(!(detailLessons[courseId] || []).length){
-          db.collection("courses").doc(courseId).collection("lessons").orderBy("order").get()
-            .then(snap => {
-              detailLessons[courseId] = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
-              const r = currentRoute();
-              if(r.name === "lesson" && r.args[0] === courseId) render();
-            }).catch(() => {});
+          loadDetailLessons(courseId);
         }
       }
 
@@ -1441,21 +1459,24 @@
         el.innerHTML = text ? '<div class="' + (kind === "err" ? "err-box" : kind === "warn" ? "warn-box" : "ok-box") + '" style="margin:0">' + esc(text) + '</div>' : "";
       }
       function subDatesFor(plan){
-        const now = firebase.firestore.Timestamp.now();
-        const exp = new firebase.firestore.Timestamp(now.seconds + plan.durationDays * 86400, 0);
+        const now = new Date();
+        const exp = new Date(now.getTime() + plan.durationDays * 86400 * 1000);
         return {now, exp};
       }
       // Mirrors android Repo.verifyPayment + claimPayment + createSubscriptionFromPayment.
-      // A subscription is created ONLY when a Firestore payments record exists with
+      // A subscription is created ONLY when a Supabase payments record exists with
       // status "captured" for this user and plan. There is no client-side success path.
       async function createSubscriptionFromRecord(record){
         const plan = planById(record.planId);
         if(!plan) throw new Error("Unknown plan on this payment record.");
         const {now, exp} = subDatesFor(plan);
-        await db.collection("subscriptions").doc(record.userId).set({
-          userId: record.userId, planId: record.planId, status: "active",
-          startedAt: now, expiresAt: exp, razorpayPaymentId: record.razorpayPaymentId
+        const { error } = await supabase.from("subscriptions").insert({
+          user_id: record.userId, plan_id: record.planId, status: "active",
+          expires_at: exp.toISOString()
         });
+        if(error) throw error;
+        subscription = {planId: record.planId, status: "active", expiresAt: {toDate: () => exp}};
+        render();
         store.addInbox("Subscription activated", "Your " + plan.name + " plan is active until " + fmtDate(exp) + ".");
       }
       async function checkMyPayment(){
@@ -1463,11 +1484,10 @@
         if(btn) btn.disabled = true;
         verifyMsg("", "");
         try{
-          const uid = currentUser.uid;
-          // Single equality filter (auto-indexed) + client-side sort — no composite index needed.
-          const snap = await db.collection("payments").where("userId", "==", uid).get();
-          const mine = [];
-          snap.forEach(d => { const p = Object.assign({id: d.id}, d.data()); if(p.status === "captured") mine.push(p); });
+          const uid = currentUser.id;
+          const { data, error } = await supabase.from("payments").select("*").eq("user_id", uid).order("created_at", {ascending: false});
+          if(error) throw error;
+          const mine = (data || []).map(normalizePayment).filter(p => p.status === "captured");
           mine.sort((a, b) => {
             const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
             const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
@@ -1496,13 +1516,14 @@
         if(btn) btn.disabled = true;
         verifyMsg("", "");
         try{
-          const uid = currentUser.uid;
-          const snap = await db.collection("payments").doc(payId).get();
-          if(!snap.exists){
+          const uid = currentUser.id;
+          const { data: row, error } = await supabase.from("payments").select("*").eq("id", payId).maybeSingle();
+          if(error) throw error;
+          if(!row){
             verifyMsg("No payment found with that ID yet. Check the ID (it starts with pay_…) or wait a minute and try again.", "warn");
             return;
           }
-          const rec = Object.assign({id: snap.id}, snap.data());
+          const rec = normalizePayment(row);
           const plan = planById(rec.planId);
           if(!plan){
             verifyMsg("This payment is not for a Monthly or Yearly plan. Contact support (" + SUPPORT_EMAIL + ").", "err");
@@ -1521,8 +1542,11 @@
             return;
           }
           if(!rec.userId){
-            // Claim: rules allow ONLY changing userId from "" to the caller's own uid.
-            await db.collection("payments").doc(payId).update({userId: uid});
+            // Claim: attach this unassigned payment to the caller's own account.
+            // Needs an UPDATE policy for unclaimed rows (user_id IS NULL) — see
+            // the payments-claim policy in the Supabase SQL migration file.
+            const { error: claimErr } = await supabase.from("payments").update({user_id: uid}).eq("id", payId);
+            if(claimErr) throw claimErr;
             rec.userId = uid;
           }
           await createSubscriptionFromRecord(rec);
@@ -1660,10 +1684,10 @@
       function bindPaymentHistory(){
         if(paymentHistoryLoading || paymentHistory !== null) return;
         paymentHistoryLoading = true;
-        db.collection("payments").where("userId", "==", currentUser.uid).get()
-          .then(snap => {
-            const list = [];
-            snap.forEach(d => list.push(Object.assign({id: d.id}, d.data())));
+        supabase.from("payments").select("*").eq("user_id", currentUser.id).order("created_at", {ascending: false})
+          .then(({data, error}) => {
+            if(error) throw error;
+            const list = (data || []).map(normalizePayment);
             list.sort((a, b) => {
               const ta = a.createdAt && a.createdAt.seconds ? a.createdAt.seconds : 0;
               const tb = b.createdAt && b.createdAt.seconds ? b.createdAt.seconds : 0;
@@ -1721,10 +1745,21 @@
       }
 
       // ---------- boot ----------
-      firebase.initializeApp(FIREBASE_CONFIG);
-      db = firebase.firestore();
-      firebase.auth().onAuthStateChanged(user => {
-        currentUser = user;
+      // Normalize the Supabase user into the shape the UI expects
+      // ({uid, id, email, displayName}) so the rest of the code is unchanged.
+      function normalizeUser(user){
+        const meta = user.user_metadata || {};
+        const displayName = meta.display_name || meta.full_name || meta.name || "";
+        return {uid: user.id, id: user.id, email: user.email || "", displayName: displayName};
+      }
+      let lastAuthUid = undefined;
+      supabase.auth.onAuthStateChange((event, session) => {
+        const user = session ? session.user : null;
+        const uid = user ? user.id : null;
+        if(event === "TOKEN_REFRESHED" && uid === lastAuthUid) return; // silent refresh: nothing to redo
+        lastAuthUid = uid;
+        currentUser = user ? normalizeUser(user) : null;
+        if(currentUser) ensureUserDoc().catch(() => {});
         startListeners();
         render();
       });
