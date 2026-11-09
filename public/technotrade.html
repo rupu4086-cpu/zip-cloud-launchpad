@@ -356,7 +356,6 @@
         const SUPABASE_URL = "https://kgoptzoxvcfianbrlpsz.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_7NeQIXhFI3PTnKVr7VntFQ_zq-ps6qs";
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      const ADMIN_EMAIL = "rupu4086@gmail.com";
       const SUPPORT_EMAIL = "rupu4086@gmail.com";
       const WEB_VERSION = "1.0";
 
@@ -551,6 +550,7 @@
 
       // ---------- app state ----------
       let currentUser = null;
+      let isAdmin = false;
       let coursesLoaded = false;
       let courses = [];          // merged Supabase rows (app order)
       let lessonStats = {};      // courseId -> {count, totalDurationSec}
@@ -611,6 +611,15 @@
           if(name) row.display_name = name;
           await supabaseClient.from("users").upsert(row, {onConflict: "id"});
       }
+      async function loadAdminAccess(){
+        const uid = currentUser && currentUser.id;
+        if(!uid){ isAdmin = false; return; }
+        const {data, error} = await supabaseClient.from("user_roles").select("role")
+          .eq("user_id", uid).eq("role", "admin").maybeSingle();
+        if(!currentUser || currentUser.id !== uid) return;
+        isAdmin = !error && !!data;
+        render();
+      }
       async function signInEmail(email, password){
         const { error } = await supabaseClient.auth.signInWithPassword({email, password});
           if(error) throw error;
@@ -632,7 +641,9 @@
         if(error) throw error;
       }
       async function sendPasswordReset(email){
-        const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+          redirectTo: location.origin + "/reset-password.html"
+        });
         if(error) throw error;
       }
       function signOut(){ return supabaseClient.auth.signOut(); }
@@ -1567,13 +1578,14 @@
           '<div class="card header">' +
           '<div class="avatar-lg">' + esc(initialsOf(u.displayName, u.email)) + '</div>' +
           '<div class="tx"><b>' + esc(u.displayName || "Learner") + '</b><span>' + esc(u.email || "") + '</span></div>' +
-          (u.email === ADMIN_EMAIL ? '<span class="pill gold">Admin</span>' : "") +
+          (isAdmin ? '<span class="pill gold">Admin</span>' : "") +
           '</div>' +
           '<div class="sub-card"><div class="tx"><span>Subscription</span><b>' + esc(planLabel) + '</b>' +
           (a.hasActiveSubscription ? '<span>Active until ' + fmtDate(a.expiresAt) + '</span>' : '<span>Free — subscribe to unlock all lessons</span>') +
           '</div><button class="btn btn-gold" onclick="plansNotice=null;go(\'plans\')">Get Premium</button></div>' +
           '<div class="list-card">';
         const rows = [
+          ...(isAdmin ? [{icon:"🛠️", t:"Admin Panel", s:"Manage courses, lessons and payments", route:"admin"}] : []),
           {icon:"📈", t:"My progress", s:"Completed lessons by course", route:"progress"},
           {icon:"⬇️", t:"Downloads", s:"Offline lesson videos", route:"downloads"},
           {icon:"🧾", t:"Payment history", s:"Your Razorpay payments", route:"payments"},
@@ -1595,6 +1607,8 @@
           el.addEventListener("click", () => {
             if(el.dataset.profile === "help"){
               window.location.href = "mailto:" + SUPPORT_EMAIL + "?subject=TechnoTrade%20Academy%20—%20Help";
+            } else if(el.dataset.profile === "admin"){
+              window.location.href = "/admin.html";
             } else {
               go(el.dataset.profile);
             }
@@ -1759,7 +1773,11 @@
         if(event === "TOKEN_REFRESHED" && uid === lastAuthUid) return; // silent refresh: nothing to redo
         lastAuthUid = uid;
         currentUser = user ? normalizeUser(user) : null;
-        if(currentUser) ensureUserDoc().catch(() => {});
+        isAdmin = false;
+        if(currentUser){
+          ensureUserDoc().catch(() => {});
+          loadAdminAccess().catch(() => {});
+        }
         startListeners();
         render();
       });

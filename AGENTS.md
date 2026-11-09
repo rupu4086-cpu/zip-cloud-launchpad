@@ -32,3 +32,4 @@ use the editor.
 ## Hosted website
 - Keep the uploaded learner experience in `public/technotrade.html`; preserve its Firebase integration and shared account behavior when making presentation changes.
 - Refresh data without restarting screen-specific listeners or resetting the user's scroll and form input; navigation alone resets scroll.
+- Keep the admin experience in `public/admin.html`; every admin write must require the server-side `public.user_roles` admin role, never a login-free page or an email-only client check.

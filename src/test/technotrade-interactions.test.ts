@@ -40,6 +40,11 @@ describe("Hosted learner interactions", () => {
     expect(document.getElementById('payIdInput')).toBeNull();
   });
 
+  it("shows the Admin Panel entry only after the admin role loads", () => {
+    expect(run("isAdmin=false; renderProfile()")).not.toContain('data-profile="admin"');
+    expect(run("isAdmin=true; renderProfile()")).toContain('data-profile="admin"');
+  });
+
   it("closes a dialog with Escape", () => {
     run("openModal('Remove download?')");
     document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}));

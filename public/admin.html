@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>TechnoTrade Academy — Admin Panel</title>
+  <meta name="description" content="Manage TechnoTrade Academy courses, lessons, payments and subscriptions.">
+  <meta property="og:title" content="TechnoTrade Academy — Admin Panel">
+  <meta property="og:description" content="Secure administration for TechnoTrade Academy.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    :root{--navy:#0a2540;--navy-d:#06182b;--gold:#c9a227;--gold-soft:#fbf6e3;--bg:#f4f7fa;--card:#fff;--ink:#0f1f2e;--mut:#5a6b7a;--line:#dbe4ec;--warn-bg:#fef3c7;--warn-ink:#92400e;--ok-bg:#e4f5e9;--ok-ink:#166534;--err-bg:#fee2e2;--err-ink:#991b1b}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+    header{background:var(--navy);color:#fff;padding:14px 16px;position:sticky;top:0;z-index:5}
+    .head-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:12px}
+    .logo{width:46px;height:46px;border-radius:50%;object-fit:cover;flex:0 0 auto;background:#fff}
+    header h1{margin:0;font-size:20px;line-height:1.2}
+    header h1 span{color:var(--gold)}
+    header p{margin:4px 0 0;font-size:12px;opacity:.85;line-height:1.4}
+    .wrap{max-width:900px;margin:0 auto;padding:16px 14px calc(60px + env(safe-area-inset-bottom))}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:0 0 14px;box-shadow:0 1px 4px rgba(10,37,64,.06)}
+    h2{margin:0 0 10px;font-size:19px;color:var(--navy)}
+    h3{margin:18px 0 8px;font-size:16px;color:var(--navy)}
+    label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+    input,select,textarea{width:100%;font-size:16px;padding:12px;border:1px solid #cbd6e0;border-radius:12px;background:#fff;color:var(--ink)}
+    textarea{min-height:90px;resize:vertical}
+    button{font:inherit;font-size:15px;padding:12px 18px;border:0;border-radius:12px;background:var(--navy);color:#fff;font-weight:700;cursor:pointer;min-height:48px}
+    button.secondary{background:#fff;color:var(--navy);border:2px solid var(--navy)}
+    button.gold{background:var(--gold);color:var(--navy-d)}
+    button.danger{background:#b91c1c}
+    button:disabled{opacity:.5;cursor:default}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row>*{flex:1;min-width:140px}
+    nav{display:flex;gap:8px;overflow-x:auto;padding:4px 0 12px;-webkit-overflow-scrolling:touch}
+    nav button{white-space:nowrap;flex:0 0 auto;background:#fff;color:var(--ink);border:2px solid var(--line);min-height:44px;padding:10px 14px}
+    nav button.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+    .msg{border-radius:12px;padding:12px;margin:10px 0;font-size:14px;display:none;line-height:1.5;overflow-wrap:anywhere}
+    .msg.show{display:block}
+    .msg.ok{background:var(--ok-bg);color:var(--ok-ink)}
+    .msg.err{background:var(--err-bg);color:var(--err-ink)}
+    .msg.warn{background:var(--warn-bg);color:var(--warn-ink)}
+    .item{border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0;background:#fff;overflow:hidden}
+    .item h4{margin:0 0 4px;font-size:16px;color:var(--navy);overflow-wrap:anywhere}
+    .mut{color:var(--mut);font-size:13px;overflow-wrap:anywhere;line-height:1.5}
+    .pill{display:inline-block;background:var(--gold-soft);color:var(--navy);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;margin-right:6px}
+    .pill.grey{background:#f3f4f6;color:var(--mut)}
+    .pill.green{background:var(--ok-bg);color:var(--ok-ink)}
+    .pill.amber{background:var(--warn-bg);color:var(--warn-ink)}
+    .pill.red{background:var(--err-bg);color:var(--err-ink)}
+    .stat{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+    .stat div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 8px;text-align:center}
+    .stat b{font-size:24px;display:block;color:var(--navy)}
+    .stat span{font-size:12px}
+    .hide{display:none!important}
+    .note{font-size:13px;color:var(--mut);line-height:1.55}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .actions button{flex:1;min-width:120px}
+    .chk{display:flex;align-items:center;gap:10px;margin:12px 0}
+    .chk input{width:24px;height:24px;flex:0 0 auto}
+    .chk span{font-size:15px;font-weight:600}
+    img.thumb{width:100%;max-width:320px;border-radius:12px;margin-top:8px;display:block}
+    .thumb-sm{width:120px;height:68px;object-fit:cover;border-radius:8px;float:right;margin-left:10px}
+    .modal-bg{position:fixed;inset:0;background:rgba(6,24,43,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+    .modal{background:#fff;border-radius:16px;padding:20px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(10,37,64,.3)}
+    .modal p{margin:0 0 14px;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+    .divider{display:flex;align-items:center;gap:12px;margin:18px 0 4px;color:var(--mut);font-size:13px;font-weight:600}
+    .divider::before,.divider::after{content:"";flex:1;border-top:1px solid var(--line)}
+    .linkbtn{background:none;border:0;padding:6px 0;min-height:0;color:var(--navy);font-size:14px;font-weight:700;text-decoration:underline;text-underline-offset:3px;text-align:left}
+    .toplink{color:#fff;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap;margin-left:auto}
+    @media(max-width:700px){.stat{grid-template-columns:repeat(2,minmax(0,1fr))}.stat div:last-child{grid-column:1/-1}.thumb-sm{width:92px;height:56px}header h1{font-size:17px}.toplink{font-size:12px}.head-inner{gap:9px}.logo{width:40px;height:40px}.card{padding:14px}.actions button{min-width:100px}}
+    @media(max-width:360px){.wrap{padding-left:10px;padding-right:10px}.actions{display:grid;grid-template-columns:1fr}.actions button{min-width:0}.toplink{display:none}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="head-inner">
+    <img class="logo" src="/__l5e/assets-v1/16f9bf13-0fee-4e25-9bc4-548a11f66973/technotrade-logo.png" alt="TechnoTrade Academy">
+    <div><h1>TechnoTrade <span>Academy</span> — Admin</h1><p>Only the approved admin account can make changes.</p></div>
+    <a class="toplink" href="/technotrade.html">Learner website →</a>
+  </div>
+</header>
+<div class="wrap">
+  <div class="card" id="authCard">
+    <h2>Admin sign in</h2>
+    <p class="mut">Sign in with the approved admin account. Other accounts cannot open this panel.</p>
+    <div id="authMsg" class="msg"></div>
+    <button id="signInBtn" onclick="signInGoogle()">Continue with Google</button>
+    <div class="divider">or sign in with email</div>
+    <label for="authEmail">Email</label>
+    <input id="authEmail" type="email" autocomplete="email" placeholder="Admin email">
+    <label for="authPassword">Password</label>
+    <input id="authPassword" type="password" autocomplete="current-password" placeholder="Your password" onkeydown="if(event.key==='Enter') signInWithEmail()">
+    <div class="actions"><button id="emailSignInBtn" onclick="signInWithEmail()">Sign in</button></div>
+    <button type="button" class="linkbtn" id="resetPwLink" onclick="sendPasswordReset()">Set / forgot password</button>
+  </div>
+
+  <div class="card hide" id="deniedCard">
+    <h2>Access denied</h2>
+    <p>This panel is only for the approved admin. You are signed in as <b id="deniedEmail"></b>.</p>
+    <div class="actions"><button class="secondary" onclick="signOut()">Sign out</button><a href="/technotrade.html"><button>Back to website</button></a></div>
+  </div>
+
+  <div id="app" class="hide">
+    <div class="card"><b id="signedInAs"></b><div class="actions"><button class="secondary" onclick="signOut()">Sign out</button></div></div>
+    <nav id="tabs" aria-label="Admin sections"></nav>
+    <div id="globalMsg" class="msg"></div>
+
+    <section data-sec="dashboard">
+      <div class="card"><h2>Dashboard</h2>
+        <div class="stat">
+          <div><b id="cCourses">—</b><span class="mut">Courses</span></div>
+          <div><b id="cLessons">—</b><span class="mut">Lessons</span></div>
+          <div><b id="cUsers">—</b><span class="mut">Users</span></div>
+          <div><b id="cSubs">—</b><span class="mut">Active subscriptions</span></div>
+          <div><b id="cPending">—</b><span class="mut">Payments to confirm</span></div>
+        </div>
+        <div class="actions"><button class="secondary" onclick="reloadAll()">Refresh</button></div>
+        <h3>Latest payments</h3><div id="dashPayments"></div>
+      </div>
+    </section>
+
+    <section data-sec="courses" class="hide">
+      <div class="card"><h2>Courses</h2>
+        <p class="note">Only courses saved here appear on the learner website. No sample courses are created.</p>
+        <div id="courseMsg" class="msg"></div>
+        <div class="actions"><button onclick="newCourse()">+ New course</button></div>
+        <div id="courseList"></div>
+        <div id="courseForm" class="hide">
+          <h3 id="courseFormTitle">New course</h3>
+          <label for="cfId">Course ID *</label>
+          <input id="cfId" placeholder="my-course-id" autocomplete="off">
+          <p class="note">Use lowercase letters, numbers and dashes. The ID cannot change after creation.</p>
+          <label for="cfTitle">Title *</label><input id="cfTitle" placeholder="Course title">
+          <label for="cfDesc">Description</label><textarea id="cfDesc" placeholder="What this course teaches…"></textarea>
+          <label for="cfOrder">Display order</label><input id="cfOrder" type="number" min="0" value="0">
+          <label for="cfThumb">Thumbnail image URL</label><input id="cfThumb" placeholder="https://…" oninput="previewThumb()">
+          <img id="cfThumbPrev" class="thumb hide" alt="Thumbnail preview">
+          <div class="actions"><button class="secondary" onclick="resetThumb()">Clear thumbnail</button></div>
+          <div class="actions"><button onclick="saveCourse()">Save course</button><button class="secondary" onclick="cancelCourse()">Cancel</button></div>
+        </div>
+        <div id="lessonBox" class="hide">
+          <h3 id="lessonBoxTitle">Lessons</h3>
+          <div id="lessonMsg" class="msg"></div>
+          <div id="lessonList"></div>
+          <h3>Add lesson</h3>
+          <label for="lfTitle">Lesson title *</label><input id="lfTitle" placeholder="Lesson title">
+          <label for="lfDesc">Description</label><textarea id="lfDesc" placeholder="Short description…"></textarea>
+          <label for="lfVideo">Video URL *</label><input id="lfVideo" placeholder="https://drive.google.com/file/d/…/view">
+          <label for="lfDur">Duration (mm:ss or seconds)</label><input id="lfDur" placeholder="12:30">
+          <label for="lfOrder">Display order</label><input id="lfOrder" type="number" min="0" value="0">
+          <div class="actions"><button onclick="saveLesson()">Add lesson</button><button class="secondary" onclick="closeLessons()">Close lessons</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-sec="razorpay" class="hide">
+      <div class="card"><h2>Razorpay — payment links</h2>
+        <p class="note">Paste public payment-link URLs only. Never paste a Razorpay secret here.</p>
+        <div id="rzMsg" class="msg"></div>
+        <p>Status: <b id="rzStatus">Not loaded yet</b></p>
+        <label for="rzMonthly">Monthly plan link — ₹1,000 / 30 days</label><input id="rzMonthly" placeholder="https://rzp.io/l/…">
+        <label for="rzYearly">Yearly plan link — ₹3,000 / 365 days</label><input id="rzYearly" placeholder="https://rzp.io/l/…">
+        <div class="chk"><input id="rzEnabled" type="checkbox"><span>Payment links enabled</span></div>
+        <div class="actions"><button onclick="saveRazorpay()">Save payment settings</button></div>
+      </div>
+    </section>
+
+    <section data-sec="payments" class="hide">
+      <div class="card"><h2>Payments</h2>
+        <p class="note">Confirming a captured payment activates the learner's subscription immediately.</p>
+        <div id="payMsg" class="msg"></div>
+        <div class="actions"><button class="secondary" onclick="loadPayments()">Reload newest 50</button></div>
+        <div id="paymentList"></div>
+        <h3>Manual subscription grant</h3>
+        <p class="note">The learner must have signed in to the website at least once.</p>
+        <label for="grantEmail">User email *</label><input id="grantEmail" type="email" placeholder="Learner email">
+        <label for="grantPlan">Plan</label><select id="grantPlan"><option value="monthly">Monthly — 30 days</option><option value="yearly">Yearly — 365 days</option></select>
+        <div class="actions"><button onclick="grantSubscription()">Grant subscription</button></div>
+      </div>
+    </section>
+
+    <section data-sec="notifications" class="hide">
+      <div class="card"><h2>Notifications</h2>
+        <p class="note">Notifications are saved as queued. Phone delivery needs a separate delivery service; this panel never marks them as sent without one.</p>
+        <div id="notifMsg" class="msg"></div>
+        <label for="nfTitle">Title *</label><input id="nfTitle" placeholder="New course is live!">
+        <label for="nfMessage">Message *</label><textarea id="nfMessage" placeholder="Notification message"></textarea>
+        <label for="nfAudience">Audience</label><select id="nfAudience"><option value="all">All users</option><option value="monthly">Monthly subscribers</option><option value="yearly">Yearly subscribers</option><option value="non_subscribed">Non-subscribed users</option></select>
+        <div class="actions"><button onclick="sendNotification()">Queue notification</button></div>
+        <h3>Recent notifications</h3><div id="notifList"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="modalBg" class="modal-bg hide" role="dialog" aria-modal="true" aria-labelledby="modalText">
+  <div class="modal"><p id="modalText"></p><input id="modalInput" class="hide" placeholder=""><div class="actions"><button id="modalCancel" class="secondary" type="button">Cancel</button><button id="modalOk" type="button">OK</button></div></div>
+</div>
+
+<script>
+"use strict";
+const SUPABASE_URL = "https://kgoptzoxvcfianbrlpsz.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_7NeQIXhFI3PTnKVr7VntFQ_zq-ps6qs";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+function showMsg(el, text, kind){if(!el)return;el.textContent=text;el.className="msg show "+(kind||"ok");clearTimeout(el._timer);el._timer=setTimeout(()=>{el.className="msg";},9000);}
+function fmtRs(amount){return "₹"+Math.round(Number(amount||0)).toLocaleString("en-IN");}
+function fmtDate(value){try{return new Date(value).toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});}catch(e){return "—";}}
+function fmtDur(seconds){const n=Math.round(seconds||0);return Math.floor(n/60)+":"+String(n%60).padStart(2,"0");}
+function parseDur(value){const text=String(value||"").trim();if(!text)return 0;if(text.includes(":")){const parts=text.split(":").map(Number);if(parts.some(isNaN))return 0;if(parts.length===2)return parts[0]*60+parts[1];if(parts.length===3)return parts[0]*3600+parts[1]*60+parts[2];return 0;}const n=parseInt(text,10);return isNaN(n)?0:n;}
+function slugId(value){return String(value||"").trim().toLowerCase().replace(/[^a-z0-9-]+/g,"-").replace(/^-+|-+$/g,"");}
+function driveThumb(url){const match=String(url||"").match(/drive\.google\.com\/file\/d\/([^/]+)/);return match?"https://drive.google.com/thumbnail?id="+match[1]+"&sz=w800":String(url||"");}
+function errorText(error){return error&&error.message?error.message:String(error||"Unknown error");}
+
+let modalCb=null,modalTrigger=null;
+function openModal(text,options){const opts=options||{};modalTrigger=document.activeElement;$("modalText").textContent=text;const input=$("modalInput");input.classList.toggle("hide",!opts.input);input.placeholder=opts.placeholder||"";input.value="";$("modalOk").textContent=opts.okLabel||"OK";$("modalOk").className=opts.danger?"danger":"";modalCb=opts.onOk||null;$("modalBg").classList.remove("hide");if(opts.input)input.focus();else $("modalCancel").focus();}
+function closeModal(){$("modalBg").classList.add("hide");modalCb=null;if(modalTrigger&&modalTrigger.isConnected)modalTrigger.focus();}
+function askConfirm(text,okLabel,onOk){openModal(text,{okLabel,danger:true,onOk:()=>onOk()});}
+$("modalCancel").addEventListener("click",closeModal);
+$("modalOk").addEventListener("click",()=>{const cb=modalCb,value=$("modalInput").value;closeModal();if(cb)cb(value);});
+$("modalBg").addEventListener("click",event=>{if(event.target===$("modalBg"))closeModal();});
+document.addEventListener("keydown",event=>{if($("modalBg").classList.contains("hide"))return;if(event.key==="Escape")closeModal();if(event.key==="Tab"){const controls=[...$("modalBg").querySelectorAll("input,button")].filter(el=>!el.classList.contains("hide")&&!el.disabled);const first=controls[0],last=controls[controls.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+
+let currentUser=null,isAdmin=false,accessVersion=0,liveChannel=null;
+function showAccessCard(name){$("authCard").classList.toggle("hide",name!=="auth");$("deniedCard").classList.toggle("hide",name!=="denied");$("app").classList.toggle("hide",name!=="app");}
+async function signInGoogle(){const {error}=await supabaseClient.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+"/admin.html"}});if(error)showMsg($("authMsg"),errorText(error),"err");}
+async function signInWithEmail(){const email=$("authEmail").value.trim(),password=$("authPassword").value;if(!email||!password)return showMsg($("authMsg"),"Enter your email and password.","err");$("emailSignInBtn").disabled=true;const {error}=await supabaseClient.auth.signInWithPassword({email,password});$("emailSignInBtn").disabled=false;if(error)showMsg($("authMsg"),errorText(error),"err");}
+async function sendPasswordReset(){const email=$("authEmail").value.trim();if(!email)return showMsg($("authMsg"),"Enter your email first.","err");const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo:location.origin+"/reset-password.html"});showMsg($("authMsg"),error?errorText(error):"Password email sent. Open it and follow the instructions.",error?"err":"ok");}
+function signOut(){return supabaseClient.auth.signOut();}
+async function refreshAccess(){
+  const version=++accessVersion;
+  stopLive();
+  const {data:{user},error}=await supabaseClient.auth.getUser();
+  if(version!==accessVersion)return;
+  if(error){showAccessCard("auth");showMsg($("authMsg"),errorText(error),"err");return;}
+  currentUser=user;isAdmin=false;
+  if(!user){showAccessCard("auth");return;}
+  const {data:role,error:roleError}=await supabaseClient.from("user_roles").select("role").eq("user_id",user.id).eq("role","admin").maybeSingle();
+  if(version!==accessVersion)return;
+  if(roleError){showAccessCard("denied");$("deniedEmail").textContent=user.email||"Unknown account";return;}
+  if(!role){showAccessCard("denied");$("deniedEmail").textContent=user.email||"Unknown account";return;}
+  isAdmin=true;$("signedInAs").textContent="Signed in as "+(user.email||"admin");showAccessCard("app");await reloadAll();startLive();
+}
+supabaseClient.auth.onAuthStateChange(event=>{if(event==="SIGNED_IN"||event==="SIGNED_OUT"||event==="USER_UPDATED"||event==="INITIAL_SESSION")refreshAccess();});
+refreshAccess();
+
+const TABS=[["dashboard","Dashboard"],["courses","Courses"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"]];
+let activeTab="dashboard";
+function buildTabs(){$("tabs").innerHTML=TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(id===activeTab?"active":"")+'" onclick="showTab(\''+id+'\')">'+label+"</button>").join("");}
+function showTab(id){activeTab=id;document.querySelectorAll("#tabs button").forEach(button=>button.classList.toggle("active",button.dataset.tab===id));document.querySelectorAll("#app section").forEach(section=>section.classList.toggle("hide",section.dataset.sec!==id));}
+buildTabs();
+
+async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadRazorpay(),loadPayments(),loadNotifications()]);}
+async function loadDashboard(){
+  try{
+    const [courses,lessons,users,subs,payments]=await Promise.all([
+      supabaseClient.from("courses").select("id"),
+      supabaseClient.from("lessons").select("id"),
+      supabaseClient.from("users").select("id"),
+      supabaseClient.from("subscriptions").select("user_id,status,expires_at"),
+      supabaseClient.from("payments").select("*").order("created_at",{ascending:false}).limit(50)
+    ]);
+    for(const result of [courses,lessons,users,subs,payments])if(result.error)throw result.error;
+    $("cCourses").textContent=(courses.data||[]).length;$("cLessons").textContent=(lessons.data||[]).length;$("cUsers").textContent=(users.data||[]).length;
+    const now=Date.now();$("cSubs").textContent=(subs.data||[]).filter(sub=>sub.status==="active"&&sub.expires_at&&new Date(sub.expires_at).getTime()>now).length;
+    $("cPending").textContent=(payments.data||[]).filter(pay=>pay.status==="captured").length;
+    $("dashPayments").innerHTML=(payments.data||[]).slice(0,5).map(pay=>'<div class="item"><h4>'+esc(fmtRs(pay.amount))+' — '+esc(pay.plan_id||"—")+'</h4><p class="mut">'+esc(pay.status||"")+' • '+esc(pay.id)+' • '+esc(fmtDate(pay.created_at))+'</p></div>').join("")||'<p class="mut">No payments yet.</p>';
+  }catch(error){showMsg($("globalMsg"),"Dashboard failed to load: "+errorText(error),"err");}
+}
+
+let courseRows=[],editingCourseId=null,lessonsCourseId=null,lessonRows=[];
+async function loadCourses(){const {data,error}=await supabaseClient.from("courses").select("*").order("order");if(error){showMsg($("courseMsg"),"Could not load courses: "+errorText(error),"err");return;}courseRows=data||[];renderCourses();}
+function renderCourses(){$("courseList").innerHTML=courseRows.map(course=>{const thumb=course.thumbnail_url?'<img class="thumb-sm" src="'+esc(driveThumb(course.thumbnail_url))+'" alt="" onerror="this.style.display=\'none\'">':"";return '<div class="item">'+thumb+'<h4>'+esc(course.title||course.id)+'</h4><p class="mut">ID: <code>'+esc(course.id)+'</code> • order '+esc(course.order||0)+'</p><p class="mut">'+esc(course.description||"")+'</p><div class="actions"><button class="secondary" data-course-action="lessons" data-id="'+esc(course.id)+'">Lessons</button><button class="secondary" data-course-action="edit" data-id="'+esc(course.id)+'">Edit</button><button class="danger" data-course-action="delete" data-id="'+esc(course.id)+'">Delete</button></div></div>';}).join("")||'<p class="mut">No courses yet — add the first one above.</p>';}
+$("courseList").addEventListener("click",event=>{const button=event.target.closest("button[data-course-action]");if(!button)return;const course=courseRows.find(row=>row.id===button.dataset.id);if(!course)return;if(button.dataset.courseAction==="lessons")openLessons(course.id,course.title);else if(button.dataset.courseAction==="edit")editCourse(course.id);else if(button.dataset.courseAction==="delete")deleteCourse(course.id,course.title);});
+function newCourse(){editingCourseId=null;$("courseFormTitle").textContent="New course";$("cfId").disabled=false;$("cfId").value="";$("cfTitle").value="";$("cfDesc").value="";$("cfOrder").value="0";$("cfThumb").value="";previewThumb();$("lessonBox").classList.add("hide");$("courseForm").classList.remove("hide");$("courseForm").scrollIntoView({behavior:"smooth",block:"start"});}
+function cancelCourse(){$("courseForm").classList.add("hide");}
+function previewThumb(){const url=$("cfThumb").value.trim(),img=$("cfThumbPrev");if(!url){img.classList.add("hide");img.removeAttribute("src");return;}img.src=driveThumb(url);img.classList.remove("hide");img.onerror=()=>img.classList.add("hide");}
+function resetThumb(){$("cfThumb").value="";previewThumb();showMsg($("courseMsg"),"Thumbnail cleared. Save the course to apply it.","ok");}
+function editCourse(id){const course=courseRows.find(row=>row.id===id);if(!course)return;editingCourseId=id;$("courseFormTitle").textContent="Edit course — "+id;$("cfId").disabled=true;$("cfId").value=id;$("cfTitle").value=course.title||"";$("cfDesc").value=course.description||"";$("cfOrder").value=course.order??0;$("cfThumb").value=course.thumbnail_url||"";previewThumb();$("lessonBox").classList.add("hide");$("courseForm").classList.remove("hide");$("courseForm").scrollIntoView({behavior:"smooth",block:"start"});}
+function courseFormPayload(){return {title:$("cfTitle").value.trim(),description:$("cfDesc").value.trim(),thumbnail_url:$("cfThumb").value.trim(),order:parseInt($("cfOrder").value,10)||0};}
+async function saveCourse(){const id=editingCourseId||slugId($("cfId").value),payload=courseFormPayload();if(!id)return showMsg($("courseMsg"),"Enter a course ID.","err");if(!payload.title)return showMsg($("courseMsg"),"Course title is required.","err");const result=editingCourseId?await supabaseClient.from("courses").update(payload).eq("id",editingCourseId):await supabaseClient.from("courses").insert({id,...payload});if(result.error)return showMsg($("courseMsg"),"Save failed: "+errorText(result.error),"err");$("courseForm").classList.add("hide");await Promise.all([loadCourses(),loadDashboard()]);showMsg($("courseMsg"),"Course saved — learner website updates live.","ok");}
+function deleteCourse(id,title){askConfirm('Delete course "'+title+'" and ALL its lessons? This cannot be undone.',"Delete",()=>doDeleteCourse(id));}
+async function doDeleteCourse(id){const lessons=await supabaseClient.from("lessons").delete().eq("course_id",id);if(lessons.error)return showMsg($("courseMsg"),"Delete failed: "+errorText(lessons.error),"err");const course=await supabaseClient.from("courses").delete().eq("id",id);if(course.error)return showMsg($("courseMsg"),"Delete failed: "+errorText(course.error),"err");if(lessonsCourseId===id)closeLessons();await Promise.all([loadCourses(),loadDashboard()]);showMsg($("courseMsg"),"Course deleted — learner website updates live.","ok");}
+
+async function openLessons(courseId,title){lessonsCourseId=courseId;$("lessonBoxTitle").textContent="Lessons — "+title;$("lessonBox").classList.remove("hide");$("courseForm").classList.add("hide");await loadLessons();$("lessonBox").scrollIntoView({behavior:"smooth",block:"start"});}
+function closeLessons(){$("lessonBox").classList.add("hide");lessonsCourseId=null;lessonRows=[];}
+async function loadLessons(){if(!lessonsCourseId)return;const {data,error}=await supabaseClient.from("lessons").select("*").eq("course_id",lessonsCourseId).order("order");if(error)return showMsg($("lessonMsg"),"Could not load lessons: "+errorText(error),"err");lessonRows=data||[];$("lessonList").innerHTML=lessonRows.map(lesson=>'<div class="item"><h4>'+esc(lesson.title||lesson.id)+'</h4><p class="mut">'+esc(fmtDur(lesson.duration_sec))+' • order '+esc(lesson.order||0)+'</p><p class="mut">'+esc(lesson.description||"")+'</p><p class="mut">'+esc(lesson.video_url||"")+'</p><div class="actions"><button class="danger" data-lesson-delete="'+esc(lesson.id)+'">Delete lesson</button></div></div>').join("")||'<p class="mut">No lessons yet for this course.</p>';}
+$("lessonList").addEventListener("click",event=>{const button=event.target.closest("button[data-lesson-delete]");if(!button)return;const lesson=lessonRows.find(row=>row.id===button.dataset.lessonDelete);if(lesson)askConfirm('Delete lesson "'+lesson.title+'"?',"Delete",()=>doDeleteLesson(lesson.id));});
+async function saveLesson(){if(!lessonsCourseId)return;const title=$("lfTitle").value.trim(),videoUrl=$("lfVideo").value.trim();if(!title)return showMsg($("lessonMsg"),"Lesson title is required.","err");if(!videoUrl)return showMsg($("lessonMsg"),"Video URL is required.","err");const payload={id:crypto.randomUUID(),course_id:lessonsCourseId,title,description:$("lfDesc").value.trim(),video_url:videoUrl,duration_sec:parseDur($("lfDur").value),order:parseInt($("lfOrder").value,10)||0};const {error}=await supabaseClient.from("lessons").insert(payload);if(error)return showMsg($("lessonMsg"),"Save failed: "+errorText(error),"err");$("lfTitle").value="";$("lfDesc").value="";$("lfVideo").value="";$("lfDur").value="";$("lfOrder").value="0";await Promise.all([loadLessons(),loadDashboard()]);showMsg($("lessonMsg"),"Lesson saved — learner website updates live.","ok");}
+async function doDeleteLesson(id){const {error}=await supabaseClient.from("lessons").delete().eq("id",id).eq("course_id",lessonsCourseId);if(error)return showMsg($("lessonMsg"),"Delete failed: "+errorText(error),"err");await Promise.all([loadLessons(),loadDashboard()]);showMsg($("lessonMsg"),"Lesson deleted.","ok");}
+
+let paymentConfigExists=false;
+async function loadRazorpay(){const {data,error}=await supabaseClient.from("payment_config").select("*").limit(1).maybeSingle();if(error)return showMsg($("rzMsg"),"Could not load payment settings: "+errorText(error),"err");paymentConfigExists=!!data;$("rzMonthly").value=data?.monthly_link||"";$("rzYearly").value=data?.yearly_link||"";$("rzEnabled").checked=!!data?.enabled;$("rzStatus").textContent=data?(data.enabled?"Enabled":"Disabled")+(data.monthly_link?" • Monthly link set":" • Monthly link missing")+(data.yearly_link?" • Yearly link set":" • Yearly link missing"):"No payment settings saved yet.";}
+async function saveRazorpay(){const monthly=$("rzMonthly").value.trim(),yearly=$("rzYearly").value.trim();if(monthly&&!/^https:\/\//.test(monthly))return showMsg($("rzMsg"),"Monthly link must start with https://","err");if(yearly&&!/^https:\/\//.test(yearly))return showMsg($("rzMsg"),"Yearly link must start with https://","err");const payload={monthly_link:monthly,yearly_link:yearly,enabled:$("rzEnabled").checked};const result=paymentConfigExists?await supabaseClient.from("payment_config").update(payload).not("monthly_link","is",null):await supabaseClient.from("payment_config").insert(payload);if(result.error)return showMsg($("rzMsg"),"Save failed: "+errorText(result.error),"err");await loadRazorpay();showMsg($("rzMsg"),"Payment settings saved — Buy buttons use these links.","ok");}
+
+const PLAN_DAYS={monthly:30,yearly:365};
+async function createSubscription(userId,planId){const days=PLAN_DAYS[planId];if(!days)throw new Error("Unknown plan");const expires=new Date(Date.now()+days*86400000).toISOString();const {error}=await supabaseClient.from("subscriptions").upsert({user_id:userId,plan_id:planId,status:"active",expires_at:expires},{onConflict:"user_id"});if(error)throw error;}
+async function findUserByEmail(email){const {data,error}=await supabaseClient.from("users").select("id,email,display_name").ilike("email",email.trim()).limit(1).maybeSingle();if(error)throw error;return data;}
+async function loadPayments(){const [{data:payments,error:paymentError},{data:users,error:userError}]=await Promise.all([supabaseClient.from("payments").select("*").order("created_at",{ascending:false}).limit(50),supabaseClient.from("users").select("id,email,display_name")]);if(paymentError)return showMsg($("payMsg"),"Could not load payments: "+errorText(paymentError),"err");if(userError)return showMsg($("payMsg"),"Could not load learners: "+errorText(userError),"err");const userMap=Object.fromEntries((users||[]).map(user=>[user.id,user]));$("paymentList").innerHTML=(payments||[]).map(pay=>{const user=pay.user_id?userMap[pay.user_id]:null;const who=user?(user.email||user.display_name||pay.user_id):(pay.user_id||"Unmatched — no user yet");const pill=pay.status==="captured"||pay.status==="confirmed"?"green":(pay.status==="failed"?"red":"grey");return '<div class="item"><h4>'+esc(fmtRs(pay.amount))+' — '+esc(pay.plan_id||"—")+' <span class="pill '+pill+'">'+esc(pay.status||"?")+'</span></h4><p class="mut">'+esc(pay.id)+' • '+esc(fmtDate(pay.created_at))+'</p><p class="mut">Payer: '+esc(who)+'</p>'+(pay.status==="captured"?'<div class="actions"><button data-payment-confirm="'+esc(pay.id)+'">Confirm — activate subscription</button></div>':"")+'</div>';}).join("")||'<p class="mut">No payments yet.</p>';}
+$("paymentList").addEventListener("click",event=>{const button=event.target.closest("button[data-payment-confirm]");if(button)confirmPayment(button.dataset.paymentConfirm);});
+async function confirmPayment(paymentId){const {data:payment,error}=await supabaseClient.from("payments").select("*").eq("id",paymentId).maybeSingle();if(error||!payment)return showMsg($("payMsg"),"Payment not found: "+errorText(error),"err");if(payment.status!=="captured")return showMsg($("payMsg"),"Only captured payments can be confirmed.","err");if(payment.user_id)return finishConfirm(paymentId,payment.user_id,payment);openModal("This payment has no learner assigned. Enter the learner's email:",{input:true,placeholder:"Learner email",okLabel:"Activate",onOk:async email=>{if(!email.trim())return;try{const user=await findUserByEmail(email);if(!user)return showMsg($("payMsg"),"No learner with that email has signed in yet.","err");await finishConfirm(paymentId,user.id,payment);}catch(error){showMsg($("payMsg"),"Confirm failed: "+errorText(error),"err");}}});}
+async function finishConfirm(paymentId,userId,payment){try{await createSubscription(userId,payment.plan_id);const {error}=await supabaseClient.from("payments").update({user_id:userId,status:"confirmed"}).eq("id",paymentId);if(error)throw error;await Promise.all([loadPayments(),loadDashboard()]);showMsg($("payMsg"),"Subscription activated — learner website updates live.","ok");}catch(error){showMsg($("payMsg"),"Confirm failed: "+errorText(error),"err");}}
+async function grantSubscription(){const email=$("grantEmail").value.trim(),planId=$("grantPlan").value;if(!email)return showMsg($("payMsg"),"Enter the learner's email first.","err");try{const user=await findUserByEmail(email);if(!user)return showMsg($("payMsg"),"No learner with that email has signed in yet.","err");await createSubscription(user.id,planId);await loadDashboard();showMsg($("payMsg"),"Subscription granted ("+planId+").","ok");}catch(error){showMsg($("payMsg"),"Grant failed: "+errorText(error),"err");}}
+
+async function loadNotifications(){const {data,error}=await supabaseClient.from("admin_notifications").select("*").order("created_at",{ascending:false}).limit(20);if(error)return showMsg($("notifMsg"),"Could not load notifications: "+errorText(error),"err");$("notifList").innerHTML=(data||[]).map(note=>{const pill=note.status==="sent"?"green":(note.status==="failed"?"red":"amber");return '<div class="item"><h4>'+esc(note.title)+' <span class="pill '+pill+'">'+esc(note.status)+'</span></h4><p class="mut">'+esc(note.message)+'</p><p class="mut">To: '+esc(note.audience)+' • '+esc(fmtDate(note.created_at))+'</p></div>';}).join("")||'<p class="mut">No notifications queued yet.</p>';}
+async function sendNotification(){const title=$("nfTitle").value.trim(),message=$("nfMessage").value.trim();if(!title||!message)return showMsg($("notifMsg"),"Enter both a title and message.","err");const {error}=await supabaseClient.from("admin_notifications").insert({title,message,audience:$("nfAudience").value,status:"queued",created_by_email:currentUser?.email||""});if(error)return showMsg($("notifMsg"),"Queue failed: "+errorText(error),"err");$("nfTitle").value="";$("nfMessage").value="";await loadNotifications();showMsg($("notifMsg"),"Notification saved as queued.","ok");}
+
+function stopLive(){if(liveChannel){supabaseClient.removeChannel(liveChannel);liveChannel=null;}}
+function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).subscribe();}
+</script>
+</body>
+</html>
