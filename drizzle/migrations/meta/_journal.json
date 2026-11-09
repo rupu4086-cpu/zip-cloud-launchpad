@@ -8,6 +8,13 @@
       "when": 1794239013942,
       "tag": "0000_add_secure_admin_panel",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794239133091,
+      "tag": "0001_enable_admin_live_updates",
+      "breakpoints": true
     }
   ]
 }
