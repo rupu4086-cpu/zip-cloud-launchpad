@@ -71,4 +71,35 @@ describe("Hosted admin panel", () => {
       order: 2,
     });
   });
+
+  it("grants a subscription by inserting when none exists", async () => {
+    const insert = vi.fn(async () => ({ error: null }));
+    client.from.mockImplementation((table: string) => {
+      if (table === "subscriptions") return {
+        update: vi.fn(() => ({ eq: vi.fn(() => ({ select: vi.fn(async () => ({ data: [], error: null })) })) })),
+        insert,
+      } as never;
+      return makeClient().query as never;
+    });
+    await run("createSubscription('user-1','monthly')");
+    expect(insert).toHaveBeenCalledWith({
+      user_id: "user-1",
+      plan_id: "monthly",
+      status: "active",
+      expires_at: expect.any(String),
+    });
+  });
+
+  it("grants a subscription by updating the existing row", async () => {
+    const insert = vi.fn(async () => ({ error: null }));
+    client.from.mockImplementation((table: string) => {
+      if (table === "subscriptions") return {
+        update: vi.fn(() => ({ eq: vi.fn(() => ({ select: vi.fn(async () => ({ data: [{ user_id: "user-1" }], error: null })) })) })),
+        insert,
+      } as never;
+      return makeClient().query as never;
+    });
+    await run("createSubscription('user-1','yearly')");
+    expect(insert).not.toHaveBeenCalled();
+  });
 });
