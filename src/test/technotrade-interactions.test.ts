@@ -82,4 +82,75 @@ describe("Hosted learner interactions", () => {
     document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}));
     expect(document.getElementById('modalBg')?.classList.contains('hide')).toBe(true);
   });
+
+  describe("Email sign-up on the login page", () => {
+    const flush = () => new Promise((r) => setTimeout(r, 5));
+
+    function showLogin() {
+      run("currentUser = null; location.hash='#/home'; render()");
+      expect(document.getElementById("authEmail")).not.toBeNull();
+    }
+
+    function fillSignup(name: string, email: string, password: string) {
+      (document.getElementById("toggleMode") as HTMLButtonElement).click();
+      (document.getElementById("authName") as HTMLInputElement).value = name;
+      (document.getElementById("authEmail") as HTMLInputElement).value = email;
+      (document.getElementById("authPassword") as HTMLInputElement).value = password;
+    }
+
+    function signupButton() {
+      return document.getElementById("emailBtn") as HTMLButtonElement;
+    }
+
+    function expectSigninMode() {
+      expect(document.getElementById("signupNameBox")?.classList.contains("hide")).toBe(true);
+      expect(signupButton().textContent).toBe("Sign in");
+      expect(document.getElementById("toggleMode")?.textContent).toBe("Create a new account");
+      expect(signupButton().disabled).toBe(false);
+    }
+
+    it("shows the confirmation message and switches to sign-in when sign-up returns no session", async () => {
+      vi.mocked(client.auth.signUp).mockResolvedValue({ data: {}, error: null });
+      showLogin();
+      fillSignup("Rupu", "new@example.com", "secret123");
+      signupButton().click();
+      await flush();
+      await flush();
+      expect(document.querySelector("#authMsg .ok-box")?.textContent).toContain("Account created");
+      expect(document.getElementById("authMsg")?.textContent).toContain("confirmation link");
+      expect(document.getElementById("authMsg")?.textContent).toContain("new@example.com");
+      expectSigninMode();
+    });
+
+    it("tells an already-registered email to sign in instead", async () => {
+      vi.mocked(client.auth.signUp).mockResolvedValue({
+        data: {},
+        error: { message: "User already registered" },
+      });
+      showLogin();
+      fillSignup("Rupu", "taken@example.com", "secret123");
+      signupButton().click();
+      await flush();
+      await flush();
+      expect(document.getElementById("authMsg")?.textContent).toContain(
+        "This email already has an account — sign in instead.",
+      );
+      expectSigninMode();
+    });
+
+    it("leaves the signed-in flow alone when sign-up returns a session", async () => {
+      vi.mocked(client.auth.signUp).mockResolvedValue({ data: {}, error: null });
+      vi.mocked(client.auth.getSession).mockResolvedValue({
+        data: { session: { user: { id: "u1", email: "new@example.com" } } },
+        error: null,
+      });
+      showLogin();
+      fillSignup("Rupu", "new@example.com", "secret123");
+      signupButton().click();
+      await flush();
+      await flush();
+      expect(document.getElementById("authMsg")?.textContent).toBe("");
+      expect(signupButton().disabled).toBe(true);
+    });
+  });
 });

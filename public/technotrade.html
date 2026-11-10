@@ -939,11 +939,14 @@
           try{ await signInGoogle(); }
           catch(e){ showMsg(authErrorText(e), "err"); $("googleBtn").disabled = false; }
         });
+        function setMode(m){
+          mode = m;
+          $("signupNameBox").classList.toggle("hide", m !== "signup");
+          $("emailBtn").textContent = m === "signup" ? "Create account" : "Sign in";
+          $("toggleMode").textContent = m === "signup" ? "Already have an account? Sign in" : "Create a new account";
+        }
         $("toggleMode").addEventListener("click", () => {
-          mode = mode === "signin" ? "signup" : "signin";
-          $("signupNameBox").classList.toggle("hide", mode !== "signup");
-          $("emailBtn").textContent = mode === "signup" ? "Create account" : "Sign in";
-          $("toggleMode").textContent = mode === "signup" ? "Already have an account? Sign in" : "Create a new account";
+          setMode(mode === "signin" ? "signup" : "signin");
         });
         $("emailBtn").addEventListener("click", async () => {
           const email = $("authEmail").value.trim();
@@ -955,10 +958,28 @@
             if(mode === "signup"){
               const name = ($("authName") && $("authName").value || "").trim();
               await signUpEmail(email, password, name);
+              // Auto-confirm email is off, so sign-up returns no session
+              // until the user confirms via email — tell them, and switch
+              // to sign-in instead of leaving a disabled button.
+              const { data: { session } } = await supabaseClient.auth.getSession();
+              if(!session){
+                showMsg("Account created — we sent a confirmation link to " + email + ". Open it, then sign in here.", "ok");
+                setMode("signin");
+                $("emailBtn").disabled = false;
+              }
             } else {
               await signInEmail(email, password);
             }
-          }catch(e){ showMsg(authErrorText(e), "err"); $("emailBtn").disabled = false; }
+          }catch(e){
+            const msg = (e && e.message) || "";
+            if(mode === "signup" && /already (been )?registered|already exists/i.test(msg)){
+              showMsg("This email already has an account — sign in instead.", "err");
+              setMode("signin");
+            } else {
+              showMsg(authErrorText(e), "err");
+            }
+            $("emailBtn").disabled = false;
+          }
         });
         $("authPassword").addEventListener("keydown", e => { if(e.key === "Enter") $("emailBtn").click(); });
         $("resetPw").addEventListener("click", async () => {
