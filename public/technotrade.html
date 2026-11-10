@@ -128,6 +128,41 @@
       .course .foot .price b{font-size:15px;color:var(--navy)}
       .course .foot .price span{display:block;font-size:9.5px;font-weight:700;color:var(--faint)}
 
+      /* ---------- new home: spin wheel, learning path, plans teaser ---------- */
+      .wheel-card{background:#fff;border:1px solid var(--line);border-radius:16px;margin:0 16px 12px;padding:16px;text-align:center}
+      .wheel-card h3{margin:0;font-size:16px;font-weight:800;color:var(--navy)}
+      .wheel-card .mut{margin:6px 0 0}
+      .wheel-wrap{position:relative;width:280px;max-width:76vw;height:280px;max-height:76vw;margin:14px auto}
+      .wheel-spin{width:100%;height:100%;border-radius:50%;border:2px solid var(--navy)}
+      .wheel-spin canvas{width:100%;height:100%;display:block;border-radius:50%}
+      .wheel-pointer{position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-top:18px solid var(--gold);z-index:2}
+      .wheel-card .btn{max-width:280px;margin:0 auto}
+      .spin-result{margin-top:12px}
+      .spin-win{font-size:15px;font-weight:800;color:var(--navy)}
+      .spin-code{display:inline-block;margin-top:6px;background:var(--gold-soft);color:var(--gold-dark);border-radius:8px;padding:6px 12px;font-size:14px;font-weight:800;letter-spacing:.06em}
+      .spin-note{margin-top:6px;font-size:12px;font-weight:600;color:var(--muted)}
+      .path-card{background:#fff;border:1px solid var(--line);border-radius:16px;margin:0 16px 12px;overflow:hidden}
+      .path-step{padding:12px 14px;border-top:1px solid var(--line)}
+      .path-step:first-child{border-top:0}
+      .path-step b{display:block;font-size:13.5px;font-weight:800;color:var(--navy)}
+      .path-step span{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-top:2px;line-height:1.5}
+      .teaser{background:#fff;border:1px solid var(--line);border-radius:16px;margin:0 16px 12px;padding:14px}
+      .tp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+      .tp-row:first-child{border-top:0;padding-top:0}
+      .tp-row .tx{flex:1;min-width:0}
+      .tp-row .tx b{display:block;font-size:14px;font-weight:800;color:var(--navy)}
+      .tp-row .tx span{display:block;font-size:11.5px;font-weight:600;color:var(--muted)}
+      .tp-price{text-align:right}
+      .tp-price b{font-size:18px;font-weight:800;color:var(--navy)}
+      .tp-price .was{font-size:13px;font-weight:700;color:var(--faint);text-decoration:line-through;margin-left:4px}
+      .tp-price .per{display:block;font-size:10px;font-weight:700;color:var(--faint)}
+      .spin-applied{margin:10px 0 0;font-size:12px;font-weight:700;color:var(--gold-dark);background:var(--gold-soft);border-radius:8px;padding:8px 10px;text-align:center}
+      .teaser .btn{margin-top:12px}
+      .plan .top .was{font-size:13px;font-weight:700;color:var(--faint);text-decoration:line-through}
+      .plan.navy .top .was{color:#AFC4E6}
+      .course .meta-plain{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:9px}
+      .course .foot .avail{margin-left:auto;font-size:13px;font-weight:800;color:var(--navy)}
+
       /* ---------- detail ---------- */
       .hero{position:relative;aspect-ratio:16/7.9;background:linear-gradient(135deg,var(--navy),var(--navy-3));overflow:hidden}
       .hero img{width:100%;height:100%;object-fit:cover;display:block}
@@ -388,7 +423,7 @@
       const PLANS = [
         {id:"monthly", name:"Monthly", pricePaise:100000, price:"₹1,000", per:"/month", durationDays:30,
          tagline:"All trading categories, 1 month",
-         features:["6 courses — from Basics to Risk Management","All video lessons, full access for 1 month","Course completion certificate"],
+         features:["7 courses — all except Big Trader Strategies","All course videos, full access for 1 month","Course completion certificate"],
          excluded:["Big Trader Strategies is only in Yearly"]},
         {id:"yearly", name:"Yearly", pricePaise:300000, price:"₹3,000", per:"/year", durationDays:365, perLine:"Only ₹250/month",
          tagline:"All categories + Big Trader Strategies, 1 year",
@@ -810,7 +845,8 @@
           return;
         }
         renderBottomNav(r.name);
-        if(r.name === "home" || r.name === "courses"){ view.innerHTML = renderHome(); bindHome(); }
+        if(r.name === "home"){ view.innerHTML = renderHome(); bindHome(); }
+        else if(r.name === "courses"){ view.innerHTML = renderCourses(); bindCourses(); }
         else if(r.name === "course"){ view.innerHTML = renderDetail(r.args[0]); bindDetail(r.args[0]); }
         else if(r.name === "lesson"){ view.innerHTML = renderPlayer(r.args[0], r.args[1]); bindPlayer(r.args[0], r.args[1]); }
         else if(r.name === "plans"){ view.innerHTML = renderPlans(); bindPlans(); }
@@ -896,7 +932,6 @@
       // ---------- Home ----------
       function courseCardHTML(course){
         const stats = lessonStats[course.id] || {count:0, totalDurationSec:0};
-        const yearlyOnly = courseNeedsYearly(course.id);
         const dur = fmtHoursShort(stats.totalDurationSec);
         const rating = course.rating > 0
           ? '<span class="rating">★ ' + course.rating.toFixed(1) + (course.reviewCount > 0 ? ' <small>(' + course.reviewCount.toLocaleString("en-IN") + ')</small>' : "") + '</span>'
@@ -906,16 +941,183 @@
           '<span class="badge">' + esc(courseLevel(course.id).toUpperCase()) + '</span>' +
           (dur ? '<span class="dur">' + esc(dur) + '</span>' : "") + '</div>' +
           '<div class="body"><h3>' + esc(course.title) + '</h3><p>' + esc(course.description) + '</p>' +
-          '<div class="meta">' +
-            (course.category ? '<span class="pill">' + esc(course.category) + '</span>' : "") +
-            (stats.count > 0 ? '<span class="pill">🎬 ' + stats.count + (stats.count === 1 ? " lesson" : " lessons") + '</span>' : "") +
-            (dur ? '<span class="pill">⏱ ' + esc(dur) + '</span>' : "") +
-          '</div>' +
+          ((course.category || dur) ? '<div class="meta-plain">' + [course.category, dur].filter(Boolean).map(esc).join(" · ") + '</div>' : "") +
           '<div class="foot">' + rating +
-          '<div class="price"><b>' + (yearlyOnly ? "₹3,000" : "₹1,000") + '</b><span>' + (yearlyOnly ? "in the Yearly plan" : "in the Monthly plan") + '</span></div>' +
+          '<div class="avail">Available in Plans</div>' +
           '</div></div></div>';
       }
+      // ---------- Spin & Win wheel (display only — the code is shown, checkout is unchanged) ----------
+      const WHEEL_VALUES = [5, 10, 20, 30, 40, 50];
+      // Weighted so 40% and 50% together land about 2 in 3 spins.
+      const WHEEL_WEIGHTS = [0.05, 0.08, 0.12, 0.08, 0.33, 0.34];
+      const WHEEL_COLORS = ["#123063", "#0E2A5C", "#5B6B82", "#0A1F44", "#E9A13B", "#F4BC5C"];
+      const WHEEL_TEXT = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "#2A1A00", "#2A1A00"];
+      let spinPct = 0;        // 0 = not spun yet
+      let spinCode = "";
+      let wheelAngle = 0;     // current wheel rotation, degrees
+      let wheelSpinning = false;
+      function pickWheelValue(){
+        let r = Math.random(), acc = 0;
+        for(let i = 0; i < WHEEL_VALUES.length; i++){
+          acc += WHEEL_WEIGHTS[i];
+          if(r < acc) return WHEEL_VALUES[i];
+        }
+        return WHEEL_VALUES[WHEEL_VALUES.length - 1];
+      }
+      function spinPricePaise(plan){
+        if(!spinPct) return plan.pricePaise;
+        return Math.round(plan.pricePaise * (100 - spinPct) / 100);
+      }
+      function spinPerLine(p){
+        if(p.id === "yearly" && spinPct){
+          return "Only ₹" + Math.round(spinPricePaise(p) / 12 / 100).toLocaleString("en-IN") + "/month";
+        }
+        return p.perLine || "";
+      }
+      function drawWheel(){
+        const cv = $("wheelCanvas");
+        if(!cv) return;
+        const ctx = cv.getContext("2d");
+        if(!ctx) return;
+        const size = cv.width, cx = size / 2, cy = size / 2, R = size / 2 - 2;
+        ctx.clearRect(0, 0, size, size);
+        const step = (Math.PI * 2) / WHEEL_VALUES.length;
+        for(let i = 0; i < WHEEL_VALUES.length; i++){
+          const a0 = -Math.PI / 2 + i * step, a1 = a0 + step;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, R, a0, a1);
+          ctx.closePath();
+          ctx.fillStyle = WHEEL_COLORS[i];
+          ctx.fill();
+          ctx.strokeStyle = "#FFFFFF";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          const am = a0 + step / 2;
+          ctx.save();
+          ctx.translate(cx + Math.cos(am) * R * 0.62, cy + Math.sin(am) * R * 0.62);
+          ctx.rotate(am + Math.PI / 2);
+          ctx.fillStyle = WHEEL_TEXT[i];
+          ctx.font = "800 20px Manrope, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(WHEEL_VALUES[i] + "%", 0, 0);
+          ctx.restore();
+        }
+        ctx.beginPath();
+        ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+        ctx.fillStyle = "#0A1F44";
+        ctx.fill();
+        ctx.strokeStyle = "#E9A13B";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      function spinWheel(){
+        if(wheelSpinning) return;
+        const value = pickWheelValue();
+        const idx = WHEEL_VALUES.indexOf(value);
+        // Segment idx is centred at drawn angle (idx*60 - 60) deg; the pointer sits at the top (-90 deg).
+        // Rotation (mod 360) that puts that centre under the pointer:
+        const targetMod = (((-30 - idx * 60) % 360) + 360) % 360;
+        const currentMod = (((wheelAngle % 360) + 360) % 360);
+        let delta = targetMod - currentMod;
+        if(delta < 0) delta += 360;
+        const target = wheelAngle + 360 * 5 + delta;
+        wheelSpinning = true;
+        wheelAngle = target;
+        const wrap = $("wheelSpin");
+        const btn = $("spinBtn");
+        if(btn) btn.disabled = true;
+        const res = $("spinResult");
+        if(res) res.innerHTML = "";
+        if(wrap){
+          wrap.style.transition = "transform 4.2s cubic-bezier(0.12, 0.8, 0.08, 1)";
+          wrap.style.transform = "rotate(" + target + "deg)";
+        }
+        const finish = () => {
+          wheelSpinning = false;
+          spinPct = value;
+          spinCode = "SPIN" + value;
+          if(btn) btn.disabled = false;
+          const r2 = $("spinResult");
+          if(r2){
+            r2.innerHTML = '<div class="spin-win">You won ' + value + '% OFF</div>' +
+              '<div class="spin-code">' + esc(spinCode) + '</div>' +
+              '<div class="spin-note">Your code applies to the Monthly and Yearly plans.</div>';
+          }
+          updatePlanTeaser();
+        };
+        if(wrap){
+          let done = false;
+          const onEnd = () => { if(done) return; done = true; wrap.removeEventListener("transitionend", onEnd); finish(); };
+          wrap.addEventListener("transitionend", onEnd);
+          setTimeout(() => { if(!done){ done = true; wrap.removeEventListener("transitionend", onEnd); finish(); } }, 4600);
+        } else {
+          finish();
+        }
+      }
+      function planTeaserHTML(){
+        const m = planById("monthly"), y = planById("yearly");
+        const row = (p) => {
+          const disc = spinPricePaise(p);
+          const priceHtml = spinPct
+            ? '<b>' + fmtRs(disc) + '</b> <s class="was">' + p.price + '</s>'
+            : '<b>' + p.price + '</b>';
+          return '<div class="tp-row"><div class="tx"><b>' + esc(p.name) + '</b><span>' + esc(p.tagline) + '</span></div>' +
+            '<div class="tp-price">' + priceHtml + '<span class="per">' + esc(p.per) + '</span></div></div>';
+        };
+        let html = '<div class="teaser">' + row(m) + row(y);
+        if(spinPct) html += '<p class="spin-applied">Code ' + esc(spinCode) + ' applied — ' + spinPct + '% off both plans.</p>';
+        html += '<button class="btn btn-navy" onclick="go(\'plans\')">View Plans</button></div>';
+        return html;
+      }
+      function updatePlanTeaser(){
+        const el = $("planTeaser");
+        if(el) el.innerHTML = planTeaserHTML();
+      }
+
+      // ---------- Home (new: wheel, categories, courses, learning path, plans teaser) ----------
       function renderHome(){
+        const chip = TOPIC_CHIPS.find(c => c.label === homeChip) || TOPIC_CHIPS[0];
+        const q = homeQuery.trim().toLowerCase();
+        const visible = courses.filter(c =>
+          (!chip.ids || chip.ids.includes(c.id)) &&
+          (!q || c.title.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)));
+        let html = appBar();
+        html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
+        html += '<div class="wheel-card">' +
+          '<h3>Spin &amp; Win</h3>' +
+          '<p class="mut">Spin the wheel — win 5% to 50% off your plan.</p>' +
+          '<div class="wheel-wrap"><div class="wheel-pointer"></div><div id="wheelSpin" class="wheel-spin"><canvas id="wheelCanvas" width="280" height="280"></canvas></div></div>' +
+          '<button class="btn btn-gold" id="spinBtn">SPIN</button>' +
+          '<div id="spinResult" class="spin-result"></div>' +
+          '</div>';
+        html += '<div class="chips">' + TOPIC_CHIPS.map(c =>
+          '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
+        html += '<div class="sechd"><b>Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
+        if(dataError){
+          html += '<div class="err-box">' + esc(dataError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
+        }
+        if(!coursesLoaded && !dataError){
+          html += '<div class="loading">Loading courses…</div>';
+        } else if(!courses.length && !dataError){
+          html += '<div class="empty"><b>No courses yet</b><p>Courses will appear here once added.</p></div>';
+        } else if(!visible.length){
+          html += '<div class="empty"><b>No courses found</b><p>Try a different search or topic.</p></div>';
+        } else {
+          html += visible.map(courseCardHTML).join("");
+        }
+        html += '<div class="sechd"><b>Your learning path</b></div>' +
+          '<div class="path-card">' +
+          '<div class="path-step"><b>1 · Start with the Basics</b><span>Trading Basics — learn the market from zero.</span></div>' +
+          '<div class="path-step"><b>2 · Learn to read the market</b><span>Technical Analysis, Options, Futures and Crypto.</span></div>' +
+          '<div class="path-step"><b>3 · Protect capital and think big</b><span>Risk Management, Real Math and Big Trader Strategies.</span></div>' +
+          '</div>';
+        html += '<div class="sechd"><b>Membership</b></div>';
+        html += '<div id="planTeaser">' + planTeaserHTML() + '</div>';
+        return html;
+      }
+      function renderCourses(){
         const chip = TOPIC_CHIPS.find(c => c.label === homeChip) || TOPIC_CHIPS[0];
         const visible = courses.filter(c =>
           (!chip.ids || chip.ids.includes(c.id)) &&
@@ -926,7 +1128,7 @@
         html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
         html += '<div class="chips">' + TOPIC_CHIPS.map(c =>
           '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
-        html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + ' courses</span></div>';
+        html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
         if(dataError){
           html += '<div class="err-box">' + esc(dataError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
         }
@@ -942,24 +1144,48 @@
         return html;
       }
       function bindHome(){
-        const search = $("homeSearch");
-        if(search){
-          search.addEventListener("input", () => {
-            homeQuery = search.value;
-            const pos = search.selectionStart;
-            const r = currentRoute();
-            if(r.name === "home" || r.name === "courses"){
-              const html = renderHome();
-              $("view").innerHTML = html;
-              bindHome();
-              const s2 = $("homeSearch");
-              if(s2){ s2.focus(); s2.setSelectionRange(pos, pos); }
-            }
-          });
+        wireSearch("home");
+        wireChips();
+        wireCourseTaps();
+        drawWheel();
+        const wrap = $("wheelSpin");
+        if(wrap){ wrap.style.transition = "none"; wrap.style.transform = "rotate(" + wheelAngle + "deg)"; }
+        if(spinPct){
+          const r = $("spinResult");
+          if(r) r.innerHTML = '<div class="spin-win">You won ' + spinPct + '% OFF</div>' +
+            '<div class="spin-code">' + esc(spinCode) + '</div>' +
+            '<div class="spin-note">Your code applies to the Monthly and Yearly plans.</div>';
         }
+        const btn = $("spinBtn");
+        if(btn) btn.addEventListener("click", spinWheel);
+      }
+      function bindCourses(){
+        wireSearch("courses");
+        wireChips();
+        wireCourseTaps();
+      }
+      function wireSearch(route){
+        const search = $("homeSearch");
+        if(!search) return;
+        search.addEventListener("input", () => {
+          homeQuery = search.value;
+          const pos = search.selectionStart;
+          const r = currentRoute();
+          if(r.name === route){
+            const html = route === "home" ? renderHome() : renderCourses();
+            $("view").innerHTML = html;
+            if(route === "home") bindHome(); else bindCourses();
+            const s2 = $("homeSearch");
+            if(s2){ s2.focus(); s2.setSelectionRange(pos, pos); }
+          }
+        });
+      }
+      function wireChips(){
         document.querySelectorAll("[data-chip]").forEach(b => {
           b.addEventListener("click", () => { homeChip = b.dataset.chip; render(); });
         });
+      }
+      function wireCourseTaps(){
         document.querySelectorAll("[data-course]").forEach(el => {
           el.addEventListener("click", () => onCourseTap(el.dataset.course));
         });
@@ -1208,17 +1434,20 @@
         const cfg = paymentConfig;
         let html = '<div class="subhead"><button class="backbtn" onclick="go(\'home\')">←</button><h2>Membership</h2></div>';
         html += '<div class="plans-hd"><h1>One plan, all courses</h1>' +
-          '<p>Whichever plan you choose, its courses and lessons unlock instantly.</p></div>';
+          '<p>Whichever plan you choose, its courses unlock instantly.</p></div>';
         html += '<div class="toggle">' +
           '<button data-plan="monthly" class="' + (selectedPlan === "monthly" ? "on" : "") + '">Monthly</button>' +
           '<button data-plan="yearly" class="' + (selectedPlan === "yearly" ? "on" : "") + '">Yearly · Best Value</button></div>';
         if(plansNotice){
           html += '<div class="warn-box">' + esc(plansNotice) + '</div>';
         }
+        if(spinPct){
+          html += '<div class="ok-box">Code ' + esc(spinCode) + ' — ' + spinPct + '% off shown on the prices below.</div>';
+        }
         html += '<div style="padding:0 16px 12px"><p class="mut" style="margin:0">' +
           (a.hasActiveSubscription
             ? "Subscription active — Plan: " + esc(a.planId || "") + " • Valid till " + fmtDate(a.expiresAt)
-            : "No active subscription — Subscribe to unlock all video lessons.") +
+            : "No active subscription — Subscribe to unlock all courses.") +
           '</p></div>';
         html += PLANS.map(p => {
           const featured = p.id === "yearly";
@@ -1226,8 +1455,13 @@
           const buyEnabled = !!(cfg.enabled && link);
           let card = '<div class="plan ' + (featured ? "navy" : "white") + (selectedPlan === p.id ? " sel" : "") + '" data-plancard="' + p.id + '">';
           if(featured) card += '<span class="badge-best">BEST VALUE · SAVE 75%</span>';
-          card += '<div class="top"><b>' + esc(p.name.toUpperCase()) + '</b><span class="amt">' + p.price + '</span><span class="per">' + p.per + '</span></div>';
-          if(p.perLine) card += '<p class="perline">' + esc(p.perLine) + '</p>';
+          const disc = spinPricePaise(p);
+          const priceHtml = spinPct
+            ? '<span class="amt">' + fmtRs(disc) + '</span><span class="was">' + p.price + '</span>'
+            : '<span class="amt">' + p.price + '</span>';
+          card += '<div class="top"><b>' + esc(p.name.toUpperCase()) + '</b>' + priceHtml + '<span class="per">' + p.per + '</span></div>';
+          const pl = spinPerLine(p);
+          if(pl) card += '<p class="perline">' + esc(pl) + '</p>';
           card += '<ul>' + p.features.map(f => '<li><span>✓</span><span>' + esc(f) + '</span></li>').join("") +
             p.excluded.map(f => '<li class="x"><span class="no">✕</span><span>' + esc(f) + '</span></li>').join("") + '</ul>';
           card += '<button class="btn ' + (featured ? "btn-gold" : "btn-white") + '" data-buy="' + p.id + '">Buy</button></div>';
@@ -1413,17 +1647,20 @@
         const cfg = paymentConfig;
         let html = '<div class="subhead"><button class="backbtn" onclick="go(\'home\')">←</button><h2>Membership</h2></div>';
         html += '<div class="plans-hd"><h1>One plan, all courses</h1>' +
-          '<p>Whichever plan you choose, its courses and lessons unlock instantly.</p></div>';
+          '<p>Whichever plan you choose, its courses unlock instantly.</p></div>';
         html += '<div class="toggle">' +
           '<button data-plan="monthly" class="' + (selectedPlan === "monthly" ? "on" : "") + '">Monthly</button>' +
           '<button data-plan="yearly" class="' + (selectedPlan === "yearly" ? "on" : "") + '">Yearly · Best Value</button></div>';
         if(plansNotice){
           html += '<div class="warn-box">' + esc(plansNotice) + '</div>';
         }
+        if(spinPct){
+          html += '<div class="ok-box">Code ' + esc(spinCode) + ' — ' + spinPct + '% off shown on the prices below.</div>';
+        }
         html += '<div style="padding:0 16px 12px"><p class="mut" style="margin:0">' +
           (a.hasActiveSubscription
             ? "Subscription active — Plan: " + esc(a.planId || "") + " • Valid till " + fmtDate(a.expiresAt)
-            : "No active subscription — Subscribe to unlock all video lessons.") +
+            : "No active subscription — Subscribe to unlock all courses.") +
           '</p></div>';
         html += PLANS.map(p => {
           const featured = p.id === "yearly";
@@ -1431,8 +1668,13 @@
           const buyEnabled = !!(cfg.enabled && link);
           let card = '<div class="plan ' + (featured ? "navy" : "white") + (selectedPlan === p.id ? " sel" : "") + '" data-plancard="' + p.id + '">';
           if(featured) card += '<span class="badge-best">BEST VALUE · SAVE 75%</span>';
-          card += '<div class="top"><b>' + esc(p.name.toUpperCase()) + '</b><span class="amt">' + p.price + '</span><span class="per">' + p.per + '</span></div>';
-          if(p.perLine) card += '<p class="perline">' + esc(p.perLine) + '</p>';
+          const disc = spinPricePaise(p);
+          const priceHtml = spinPct
+            ? '<span class="amt">' + fmtRs(disc) + '</span><span class="was">' + p.price + '</span>'
+            : '<span class="amt">' + p.price + '</span>';
+          card += '<div class="top"><b>' + esc(p.name.toUpperCase()) + '</b>' + priceHtml + '<span class="per">' + p.per + '</span></div>';
+          const pl = spinPerLine(p);
+          if(pl) card += '<p class="perline">' + esc(pl) + '</p>';
           card += '<ul>' + p.features.map(f => '<li><span>✓</span><span>' + esc(f) + '</span></li>').join("") +
             p.excluded.map(f => '<li class="x"><span class="no">✕</span><span>' + esc(f) + '</span></li>').join("") + '</ul>';
           card += '<button class="btn ' + (featured ? "btn-gold" : "btn-white") + '" data-buy="' + p.id + '">Buy</button></div>';
@@ -1581,7 +1823,7 @@
           (isAdmin ? '<span class="pill gold">Admin</span>' : "") +
           '</div>' +
           '<div class="sub-card"><div class="tx"><span>Subscription</span><b>' + esc(planLabel) + '</b>' +
-          (a.hasActiveSubscription ? '<span>Active until ' + fmtDate(a.expiresAt) + '</span>' : '<span>Free — subscribe to unlock all lessons</span>') +
+          (a.hasActiveSubscription ? '<span>Active until ' + fmtDate(a.expiresAt) + '</span>' : '<span>Free — subscribe to unlock all courses</span>') +
           '</div><button class="btn btn-gold" onclick="plansNotice=null;go(\'plans\')">Get Premium</button></div>' +
           '<div class="list-card">';
         const rows = [
