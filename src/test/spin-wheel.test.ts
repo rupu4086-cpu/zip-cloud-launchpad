@@ -216,6 +216,60 @@ describe("Spin & Win wheel (learner site)", () => {
     run("landOnHomeAfterSignIn('SIGNED_IN')");
     expect(location.hash).toBe("#/course/basics");
   });
+
+  it("draws the wheel sharp on retina: backing store = CSS size x devicePixelRatio", () => {
+    run("location.hash='#/home'; render()");
+    const cv = document.getElementById("wheelCanvas") as HTMLCanvasElement;
+    expect(cv).not.toBeNull();
+    const fakeCtx: Record<string, unknown> = {};
+    [
+      "clearRect",
+      "beginPath",
+      "moveTo",
+      "arc",
+      "closePath",
+      "fill",
+      "stroke",
+      "save",
+      "translate",
+      "rotate",
+      "fillText",
+      "restore",
+    ].forEach((m) => {
+      fakeCtx[m] = vi.fn();
+    });
+    fakeCtx.setTransform = vi.fn();
+    vi.spyOn(cv, "getContext").mockReturnValue(
+      fakeCtx as unknown as CanvasRenderingContext2D,
+    );
+    const rect = (w: number) =>
+      ({
+        width: w,
+        height: w,
+        top: 0,
+        left: 0,
+        right: w,
+        bottom: w,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      }) as DOMRect;
+    const rectSpy = vi.spyOn(cv, "getBoundingClientRect").mockReturnValue(rect(280));
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+    try {
+      run("drawWheel()");
+      expect(cv.width).toBe(560);
+      expect(cv.height).toBe(560);
+      expect(fakeCtx.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0);
+      // A wider display (resize) re-sizes the backing store.
+      rectSpy.mockReturnValue(rect(296));
+      window.dispatchEvent(new window.Event("resize"));
+      expect(cv.width).toBe(592);
+      expect(cv.height).toBe(592);
+    } finally {
+      Object.defineProperty(window, "devicePixelRatio", { value: 1, configurable: true });
+    }
+  });
 });
 
 describe("Home parity with the preview", () => {
@@ -296,9 +350,12 @@ describe("Home parity with the preview", () => {
     expect(document.querySelector(".chips")).toBeNull();
     expect(cards[0]?.textContent).toContain("Stock Market");
     expect(cards[0]?.textContent).toContain("Demat, orders, market timing — start from zero.");
-    expect(cards[0]?.textContent).toContain("1 course");
     expect(cards[1]?.textContent).toContain("Pro");
-    expect(cards[1]?.textContent).toContain("2 courses");
+    expect(cards[1]?.textContent).toContain("How big traders make profit + the $100 to $2000 math.");
+    // Cards show icon + title + description only — no course count.
+    expect(document.querySelectorAll(".cat-count")).toHaveLength(0);
+    expect(cards[0]?.textContent).not.toContain("1 course");
+    expect(cards[1]?.textContent).not.toContain("2 courses");
     expect(cards[0]?.querySelector("svg")).not.toBeNull();
   });
 
@@ -309,15 +366,13 @@ describe("Home parity with the preview", () => {
     const text = document.querySelector(".cat-grid")?.textContent || "";
     expect(text).toContain("Candles, trend lines, chart patterns, indicators.");
     expect(text).toContain("Options & Futures — Greeks, hedging, expiry strategies.");
-    const counts = [...cards].map((c) => c.querySelector(".cat-count")?.textContent);
-    expect(counts).toEqual([
-      "1 course",
-      "1 course",
-      "2 courses",
-      "1 course",
-      "1 course",
-      "2 courses",
-    ]);
+    // No count on the cards; the count lives in the courses-section heading.
+    expect(document.querySelectorAll(".cat-count")).toHaveLength(0);
+    const head = [...document.querySelectorAll(".sechd")].find((el) =>
+      el.textContent?.includes("live course"),
+    );
+    expect(head?.textContent).toContain("All Courses");
+    expect(head?.textContent).toContain("8 live courses");
   });
 
   it("keeps the All Courses heading with 8 live courses", () => {
@@ -330,13 +385,38 @@ describe("Home parity with the preview", () => {
   });
 
   it("tapping a card filters the course list, tapping again clears it", () => {
+    const courseHead = () =>
+      [...document.querySelectorAll(".sechd")].find((el) =>
+        el.textContent?.includes("live course"),
+      );
     run("homeCategories=null; location.hash='#/home'; render()");
     expect(document.querySelectorAll("[data-course]")).toHaveLength(8);
+    expect(courseHead()?.textContent).toContain("All Courses");
+    expect(courseHead()?.textContent).toContain("8 live courses");
     (document.querySelector('[data-chip="Stock Market"]') as HTMLButtonElement).click();
     expect(document.querySelectorAll("[data-course]")).toHaveLength(1);
     expect(document.querySelector('[data-course="basics"]')).not.toBeNull();
+    expect(courseHead()?.textContent).toContain("Stock Market");
+    expect(courseHead()?.textContent).toContain("1 live course");
     (document.querySelector('[data-chip="Stock Market"]') as HTMLButtonElement).click();
     expect(document.querySelectorAll("[data-course]")).toHaveLength(8);
+    expect(courseHead()?.textContent).toContain("All Courses");
+    expect(courseHead()?.textContent).toContain("8 live courses");
+  });
+
+  it("shows the category name in the Courses tab heading while filtered", () => {
+    const courseHead = () =>
+      [...document.querySelectorAll(".sechd")].find((el) =>
+        el.textContent?.includes("live course"),
+      );
+    run("homeCategories=null; location.hash='#/courses'; render()");
+    expect(courseHead()?.textContent).toContain("All Courses");
+    (document.querySelector('[data-chip="Charts"]') as HTMLButtonElement).click();
+    expect(courseHead()?.textContent).toContain("Charts");
+    expect(courseHead()?.textContent).toContain("1 live course");
+    (document.querySelector('[data-chip="Charts"]') as HTMLButtonElement).click();
+    expect(courseHead()?.textContent).toContain("All Courses");
+    expect(courseHead()?.textContent).toContain("8 live courses");
   });
 
   it("keeps the phone layout inside 390px: grid uses minmax(0,1fr), wheel is capped", () => {

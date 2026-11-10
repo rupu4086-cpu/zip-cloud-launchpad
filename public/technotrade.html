@@ -149,7 +149,6 @@
       .cat-ic svg{width:20px;height:20px;display:block}
       .cat-card b{font-size:13.5px;font-weight:800;color:var(--navy);line-height:1.25;overflow-wrap:break-word}
       .cat-desc{font-size:11.5px;font-weight:600;color:var(--muted);line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:break-word}
-      .cat-count{font-size:11px;font-weight:800;color:var(--blue)}
       .path-card{background:#fff;border:1px solid var(--line);border-radius:16px;margin:0 16px 12px;overflow:hidden}
       .path-step{padding:12px 14px;border-top:1px solid var(--line)}
       .path-step:first-child{border-top:0}
@@ -1090,12 +1089,32 @@
         }
         return p.perLine || "";
       }
+      // Resize the wheel's backing store to the displayed size x devicePixelRatio,
+      // so it stays sharp on retina phones. Drawing stays in CSS-pixel coords.
+      let wheelResizeBound = false;
+      function bindWheelResize(){
+        if(wheelResizeBound) return;
+        wheelResizeBound = true;
+        if(typeof window !== "undefined" && window.addEventListener){
+          window.addEventListener("resize", () => { drawWheel(); });
+        }
+      }
       function drawWheel(){
         const cv = $("wheelCanvas");
         if(!cv) return;
+        bindWheelResize();
+        const dpr = (typeof window !== "undefined" && window.devicePixelRatio > 0) ? window.devicePixelRatio : 1;
+        let cssSize = 0;
+        if(cv.getBoundingClientRect) cssSize = cv.getBoundingClientRect().width || 0;
+        if(!cssSize) cssSize = cv.clientWidth || 0;
+        if(!cssSize) cssSize = 280;
+        const size = Math.round(cssSize);
+        const backing = Math.max(1, Math.round(size * dpr));
+        if(cv.width !== backing || cv.height !== backing){ cv.width = backing; cv.height = backing; }
         const ctx = cv.getContext("2d");
         if(!ctx) return;
-        const size = cv.width, cx = size / 2, cy = size / 2, R = size / 2 - 2;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const cx = size / 2, cy = size / 2, R = size / 2 - 2;
         ctx.clearRect(0, 0, size, size);
         const step = (Math.PI * 2) / WHEEL_VALUES.length;
         for(let i = 0; i < WHEEL_VALUES.length; i++){
@@ -1208,9 +1227,8 @@
           '<button class="cat-card' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' +
           '<span class="cat-ic">' + catIcon(c.label) + '</span>' +
           '<b>' + esc(c.label) + '</b>' +
-          '<span class="cat-desc">' + esc(c.description || "") + '</span>' +
-          '<span class="cat-count">' + (c.ids ? c.ids.length : 0) + ((c.ids ? c.ids.length : 0) === 1 ? " course" : " courses") + '</span></button>').join("") + '</div>';
-        html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
+          '<span class="cat-desc">' + esc(c.description || "") + '</span></button>').join("") + '</div>';
+        html += '<div class="sechd"><b>' + esc(chip.label === "All" ? "All Courses" : chip.label) + '</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
         if(dataError){
           html += '<div class="err-box">' + esc(dataError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
         }
@@ -1244,7 +1262,7 @@
         html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
         html += '<div class="chips">' + activeChips().map(c =>
           '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
-        html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
+        html += '<div class="sechd"><b>' + esc(chip.label === "All" ? "All Courses" : chip.label) + '</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
         if(dataError){
           html += '<div class="err-box">' + esc(dataError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
         }
