@@ -158,6 +158,19 @@
       </div>
     </section>
 
+    <section data-sec="categories" class="hide">
+      <div class="card"><h2>Categories</h2>
+        <p class="note">Categories are the topic chips on the home page. Add a category with the courses it should show, or delete one. Changes appear on the learner website.</p>
+        <div id="catMsg" class="msg"></div>
+        <div id="catList"></div>
+        <h3>Add category</h3>
+        <label for="catLabel">Category name *</label><input id="catLabel" placeholder="e.g. Swing Trading" autocomplete="off">
+        <p class="note">Tick the courses this category should show. Leave all unticked to add an empty category.</p>
+        <div id="catCourseChecks"></div>
+        <div class="actions"><button onclick="saveCategory()">Add category</button></div>
+      </div>
+    </section>
+
     <section data-sec="razorpay" class="hide">
       <div class="card"><h2>Razorpay — payment links</h2>
         <p class="note">Paste public payment-link URLs only. Never paste a Razorpay secret here.</p>
@@ -250,13 +263,13 @@ async function refreshAccess(){
 supabaseClient.auth.onAuthStateChange(event=>{if(event==="SIGNED_IN"||event==="SIGNED_OUT"||event==="USER_UPDATED"||event==="INITIAL_SESSION")refreshAccess();});
 refreshAccess();
 
-const TABS=[["dashboard","Dashboard"],["courses","Courses"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"]];
+const TABS=[["dashboard","Dashboard"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"]];
 let activeTab="dashboard";
 function buildTabs(){$("tabs").innerHTML=TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(id===activeTab?"active":"")+'" onclick="showTab(\''+id+'\')">'+label+"</button>").join("");}
 function showTab(id){activeTab=id;document.querySelectorAll("#tabs button").forEach(button=>button.classList.toggle("active",button.dataset.tab===id));document.querySelectorAll("#app section").forEach(section=>section.classList.toggle("hide",section.dataset.sec!==id));}
 buildTabs();
 
-async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadRazorpay(),loadPayments(),loadNotifications()]);}
+async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications()]);}
 async function loadDashboard(){
   try{
     const [courses,lessons,users,subs,payments]=await Promise.all([
@@ -275,7 +288,7 @@ async function loadDashboard(){
 }
 
 let courseRows=[],editingCourseId=null,lessonsCourseId=null,lessonRows=[];
-async function loadCourses(){const {data,error}=await supabaseClient.from("courses").select("*").order("order");if(error){showMsg($("courseMsg"),"Could not load courses: "+errorText(error),"err");return;}courseRows=data||[];renderCourses();}
+async function loadCourses(){const {data,error}=await supabaseClient.from("courses").select("*").order("order");if(error){showMsg($("courseMsg"),"Could not load courses: "+errorText(error),"err");return;}courseRows=data||[];renderCourses();renderCatCourseChecks();renderCategories();}
 function renderCourses(){$("courseList").innerHTML=courseRows.map(course=>{const thumb=course.thumbnail_url?'<img class="thumb-sm" src="'+esc(driveThumb(course.thumbnail_url))+'" alt="" onerror="this.style.display=\'none\'">':"";return '<div class="item">'+thumb+'<h4>'+esc(course.title||course.id)+'</h4><p class="mut">ID: <code>'+esc(course.id)+'</code> • order '+esc(course.order||0)+'</p><p class="mut">'+esc(course.description||"")+'</p><div class="actions"><button class="secondary" data-course-action="lessons" data-id="'+esc(course.id)+'">Lessons</button><button class="secondary" data-course-action="edit" data-id="'+esc(course.id)+'">Edit</button><button class="danger" data-course-action="delete" data-id="'+esc(course.id)+'">Delete</button></div></div>';}).join("")||'<p class="mut">No courses yet — add the first one above.</p>';}
 $("courseList").addEventListener("click",event=>{const button=event.target.closest("button[data-course-action]");if(!button)return;const course=courseRows.find(row=>row.id===button.dataset.id);if(!course)return;if(button.dataset.courseAction==="lessons")openLessons(course.id,course.title);else if(button.dataset.courseAction==="edit")editCourse(course.id);else if(button.dataset.courseAction==="delete")deleteCourse(course.id,course.title);});
 function newCourse(){editingCourseId=null;$("courseFormTitle").textContent="New course";$("cfId").disabled=false;$("cfId").value="";$("cfTitle").value="";$("cfDesc").value="";$("cfOrder").value="0";$("cfThumb").value="";previewThumb();$("lessonBox").classList.add("hide");$("courseForm").classList.remove("hide");$("courseForm").scrollIntoView({behavior:"smooth",block:"start"});}
@@ -295,6 +308,15 @@ $("lessonList").addEventListener("click",event=>{const button=event.target.close
 async function saveLesson(){if(!lessonsCourseId)return;const title=$("lfTitle").value.trim(),videoUrl=$("lfVideo").value.trim();if(!title)return showMsg($("lessonMsg"),"Lesson title is required.","err");if(!videoUrl)return showMsg($("lessonMsg"),"Video URL is required.","err");const payload={id:crypto.randomUUID(),course_id:lessonsCourseId,title,description:$("lfDesc").value.trim(),video_url:videoUrl,duration_sec:parseDur($("lfDur").value),order:parseInt($("lfOrder").value,10)||0};const {error}=await supabaseClient.from("lessons").insert(payload);if(error)return showMsg($("lessonMsg"),"Save failed: "+errorText(error),"err");$("lfTitle").value="";$("lfDesc").value="";$("lfVideo").value="";$("lfDur").value="";$("lfOrder").value="0";await Promise.all([loadLessons(),loadDashboard()]);showMsg($("lessonMsg"),"Lesson saved — learner website updates live.","ok");}
 async function doDeleteLesson(id){const {error}=await supabaseClient.from("lessons").delete().eq("id",id).eq("course_id",lessonsCourseId);if(error)return showMsg($("lessonMsg"),"Delete failed: "+errorText(error),"err");await Promise.all([loadLessons(),loadDashboard()]);showMsg($("lessonMsg"),"Lesson deleted.","ok");}
 
+let categoryRows=[];
+async function loadCategories(){const {data,error}=await supabaseClient.from("home_categories").select("*").order("sort_order");if(error){showMsg($("catMsg"),"Could not load categories: "+errorText(error),"err");return;}categoryRows=data||[];renderCategories();}
+function renderCatCourseChecks(){$("catCourseChecks").innerHTML=(courseRows||[]).map(course=>'<label class="chk"><input type="checkbox" data-cat-course="'+esc(course.id)+'"><span>'+esc(course.title||course.id)+'</span></label>').join("")||'<p class="mut">No courses yet — add a course first.</p>';}
+function renderCategories(){$("catList").innerHTML=categoryRows.map(cat=>{const names=(cat.course_ids||[]).map(id=>{const course=(courseRows||[]).find(row=>row.id===id);return course?(course.title||course.id):id;});const count=(cat.course_ids||[]).length;return '<div class="item"><h4>'+esc(cat.label)+'</h4><p class="mut">'+count+' course'+(count===1?"":"s")+(names.length?" — "+esc(names.join(", ")):"")+'</p><div class="actions"><button class="danger" data-cat-delete="'+esc(cat.id)+'">Delete</button></div></div>';}).join("")||'<p class="mut">No categories yet — the website uses the built-in chips until you add one.</p>';}
+$("catList").addEventListener("click",event=>{const button=event.target.closest("button[data-cat-delete]");if(!button)return;const cat=categoryRows.find(row=>row.id===button.dataset.catDelete);if(cat)deleteCategory(cat.id,cat.label);});
+function deleteCategory(id,label){askConfirm('Delete category "'+label+'"? Courses stay on the website — only this chip is removed.',"Delete",()=>doDeleteCategory(id));}
+async function saveCategory(){const label=$("catLabel").value.trim();if(!label)return showMsg($("catMsg"),"Enter a category name.","err");if(categoryRows.some(row=>String(row.label||"").toLowerCase()===label.toLowerCase()))return showMsg($("catMsg"),"A category with that name already exists.","err");const courseIds=[...document.querySelectorAll('#catCourseChecks input[data-cat-course]:checked')].map(el=>el.dataset.catCourse);const sortOrder=categoryRows.reduce((max,row)=>Math.max(max,typeof row.sort_order==="number"?row.sort_order:0),0)+1;const {error}=await supabaseClient.from("home_categories").insert({label,course_ids:courseIds,sort_order:sortOrder});if(error)return showMsg($("catMsg"),"Save failed: "+errorText(error),"err");$("catLabel").value="";await loadCategories();showMsg($("catMsg"),"Category added — learner website updates live.","ok");}
+async function doDeleteCategory(id){const {error}=await supabaseClient.from("home_categories").delete().eq("id",id);if(error)return showMsg($("catMsg"),"Delete failed: "+errorText(error),"err");await loadCategories();showMsg($("catMsg"),"Category deleted — learner website updates live.","ok");}
+
 let paymentConfigExists=false;
 async function loadRazorpay(){const {data,error}=await supabaseClient.from("payment_config").select("*").limit(1).maybeSingle();if(error)return showMsg($("rzMsg"),"Could not load payment settings: "+errorText(error),"err");paymentConfigExists=!!data;$("rzMonthly").value=data?.monthly_link||"";$("rzYearly").value=data?.yearly_link||"";$("rzEnabled").checked=!!data?.enabled;$("rzStatus").textContent=data?(data.enabled?"Enabled":"Disabled")+(data.monthly_link?" • Monthly link set":" • Monthly link missing")+(data.yearly_link?" • Yearly link set":" • Yearly link missing"):"No payment settings saved yet.";}
 async function saveRazorpay(){const monthly=$("rzMonthly").value.trim(),yearly=$("rzYearly").value.trim();if(monthly&&!/^https:\/\//.test(monthly))return showMsg($("rzMsg"),"Monthly link must start with https://","err");if(yearly&&!/^https:\/\//.test(yearly))return showMsg($("rzMsg"),"Yearly link must start with https://","err");const payload={monthly_link:monthly,yearly_link:yearly,enabled:$("rzEnabled").checked};const result=paymentConfigExists?await supabaseClient.from("payment_config").update(payload).not("monthly_link","is",null):await supabaseClient.from("payment_config").insert(payload);if(result.error)return showMsg($("rzMsg"),"Save failed: "+errorText(result.error),"err");await loadRazorpay();showMsg($("rzMsg"),"Payment settings saved — Buy buttons use these links.","ok");}
@@ -312,7 +334,7 @@ async function loadNotifications(){const {data,error}=await supabaseClient.from(
 async function sendNotification(){const title=$("nfTitle").value.trim(),message=$("nfMessage").value.trim();if(!title||!message)return showMsg($("notifMsg"),"Enter both a title and message.","err");const {error}=await supabaseClient.from("admin_notifications").insert({title,message,audience:$("nfAudience").value,status:"queued",created_by_email:currentUser?.email||""});if(error)return showMsg($("notifMsg"),"Queue failed: "+errorText(error),"err");$("nfTitle").value="";$("nfMessage").value="";await loadNotifications();showMsg($("notifMsg"),"Notification saved as queued.","ok");}
 
 function stopLive(){if(liveChannel){supabaseClient.removeChannel(liveChannel);liveChannel=null;}}
-function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).subscribe();}
+function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).on("postgres_changes",{event:"*",schema:"public",table:"home_categories"},()=>loadCategories()).subscribe();}
 </script>
 </body>
 </html>
