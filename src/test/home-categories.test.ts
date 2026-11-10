@@ -79,7 +79,7 @@ describe("Home categories (learner site)", () => {
   it("loads categories from Supabase and falls back when the table is empty", async () => {
     homeCatRows = [{ id: "r1", label: "Swing", course_ids: ["crypto"], sort_order: 1 }];
     await run("loadHomeCategories()");
-    expect(run("homeCategories")).toEqual([{ label: "Swing", ids: ["crypto"] }]);
+    expect(run("homeCategories")).toEqual([{ label: "Swing", ids: ["crypto"], description: "" }]);
     homeCatRows = [];
     await run("loadHomeCategories()");
     expect(run("homeCategories")).toBe(null);

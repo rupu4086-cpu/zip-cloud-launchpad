@@ -141,6 +141,15 @@
       .spin-win{font-size:15px;font-weight:800;color:var(--navy)}
       .spin-code{display:inline-block;margin-top:6px;background:var(--gold-soft);color:var(--gold-dark);border-radius:8px;padding:6px 12px;font-size:14px;font-weight:800;letter-spacing:.06em}
       .spin-note{margin-top:6px;font-size:12px;font-weight:600;color:var(--muted)}
+      .wheel-foot{margin:12px 0 0;font-size:11.5px;font-weight:600;color:var(--muted);line-height:1.5;overflow-wrap:break-word}
+      .cat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 16px 12px}
+      .cat-card{min-width:0;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:4px}
+      .cat-card.on{border-color:var(--gold);background:var(--gold-soft)}
+      .cat-ic{width:36px;height:36px;border-radius:10px;background:var(--navy);color:var(--gold-2);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+      .cat-ic svg{width:20px;height:20px;display:block}
+      .cat-card b{font-size:13.5px;font-weight:800;color:var(--navy);line-height:1.25;overflow-wrap:break-word}
+      .cat-desc{font-size:11.5px;font-weight:600;color:var(--muted);line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:break-word}
+      .cat-count{font-size:11px;font-weight:800;color:var(--blue)}
       .path-card{background:#fff;border:1px solid var(--line);border-radius:16px;margin:0 16px 12px;overflow:hidden}
       .path-step{padding:12px 14px;border-top:1px solid var(--line)}
       .path-step:first-child{border-top:0}
@@ -404,16 +413,31 @@
         {id:"risk-management", title:"Risk Management", desc:"Position sizing, stop-loss and capital protection — the most important skill."},
         {id:"big-trader-strategies", title:"Big Trader Strategies", desc:"How big traders build positions and book profits — the complete institutional-level playbook."}
       ];
-      // Static fallback chips — used when the admin-managed home_categories table is empty or unreachable.
+      // Static fallback categories — used when the admin-managed home_categories table is empty or unreachable.
+      // Descriptions and course counts match the seeded table (Stock Market 1, Pro 2).
       const TOPIC_CHIPS = [
         {label:"All", ids:null},
-        {label:"Stock Market", ids:["basics"]},
-        {label:"Charts", ids:["technical-analysis"]},
-        {label:"Derivatives", ids:["options","futures"]},
-        {label:"Crypto", ids:["crypto"]},
-        {label:"Risk", ids:["risk-management"]},
-        {label:"Pro", ids:["big-trader-strategies"]}
+        {label:"Stock Market", ids:["basics"], description:"Demat, orders, market timing — start from zero."},
+        {label:"Charts", ids:["technical-analysis"], description:"Candles, trend lines, chart patterns, indicators."},
+        {label:"Derivatives", ids:["options","futures"], description:"Options & Futures — Greeks, hedging, expiry strategies."},
+        {label:"Crypto", ids:["crypto"], description:"Spot, wallets, cycles and crypto risk control."},
+        {label:"Risk", ids:["risk-management"], description:"Position sizing, stop-loss discipline, trader mindset."},
+        {label:"Pro", ids:["big-trader-strategies","small-capital-growth"], description:"How big traders make profit + the $100 to $2000 math."}
       ];
+      // One small inline SVG per category (no emoji). Unknown labels get the chart icon.
+      function catIcon(label){
+        const icons = {
+          "Stock Market": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="4" x2="6" y2="20"/><line x1="12" y1="7" x2="12" y2="17"/><line x1="18" y1="3" x2="18" y2="21"/><rect x="4" y="8" width="4" height="7" fill="currentColor" stroke="none"/><rect x="10" y="10" width="4" height="5" fill="currentColor" stroke="none"/><rect x="16" y="7" width="4" height="8" fill="currentColor" stroke="none"/></svg>',
+          "Charts": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,17 8,11 12,14 19,5"/><polyline points="15,5 19,5 19,9"/></svg>',
+          "Derivatives": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,3 21,8 12,13 3,8"/><polyline points="3,13 12,18 21,13"/></svg>',
+          "Crypto": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M15 9.5c0-1.4-1.3-2.5-3-2.5s-3 .9-3 2.2c0 2.9 6 1.6 6 4.3 0 1.3-1.3 2.5-3 2.5s-3-1.1-3-2.5"/></svg>',
+          "Risk": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/><polyline points="9,12 11,14 15,10"/></svg>',
+          "Pro": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21h14M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 5H4a2 2 0 0 0 2 4M17 5h3a2 2 0 0 1-2 4"/></svg>'
+        };
+        return icons[label] || icons["Charts"];
+      }
+      // Real categories only (no "All") — the Home cards grid.
+      function categoryCards(){ return activeChips().filter(c => c.ids); }
       function courseCategoryLabel(id){
         return {basics:"Stock Market","technical-analysis":"Charts & Indicators",options:"Derivatives",futures:"Derivatives",crypto:"Crypto","risk-management":"Risk","big-trader-strategies":"Pro Strategies"}[id] || "";
       }
@@ -712,7 +736,7 @@
         const { data, error } = await supabaseClient.from("home_categories").select("*").order("sort_order");
         if(error) throw error;
         const rows = (data || []).filter(r => r && r.label);
-        homeCategories = rows.length ? rows.map(r => ({label: String(r.label), ids: Array.isArray(r.course_ids) ? r.course_ids.slice() : []})) : null;
+        homeCategories = rows.length ? rows.map(r => ({label: String(r.label), ids: Array.isArray(r.course_ids) ? r.course_ids.slice() : [], description: (typeof r.description === "string" ? r.description : "")})) : null;
         render();
       }
       async function loadSubscription(){
@@ -762,6 +786,7 @@
         });
         loadPaymentConfig().catch(() => { /* config failure is non-fatal: Buy buttons stay disabled */ });
         loadHomeCategories().catch(() => { /* categories failure is non-fatal: static chips stay */ });
+        checkTodaySpin().catch(() => { /* spin check failure is non-fatal: insert still guards the discount */ });
         loadSubscription();
         // Live updates: re-fetch when the tables change (admin edits reflect instantly).
         // NOTE: postgres_changes only fires for tables added to the
@@ -972,6 +997,81 @@
       let spinCode = "";
       let wheelAngle = 0;     // current wheel rotation, degrees
       let wheelSpinning = false;
+      let spinToday = null;   // {discount, code} once the user has spun today (IST)
+      let spinCheckKey = "";  // uid|IST-date already checked, so Home re-renders don't re-query
+      // Asia/Kolkata is UTC+5:30 all year (no daylight saving), so IST day math is exact.
+      const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+      function istDateStr(d){
+        const ist = new Date(d.getTime() + IST_OFFSET_MS);
+        return ist.getUTCFullYear() + "-" + String(ist.getUTCMonth() + 1).padStart(2, "0") + "-" + String(ist.getUTCDate()).padStart(2, "0");
+      }
+      function istDayRange(){
+        const ist = new Date(Date.now() + IST_OFFSET_MS);
+        const start = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_OFFSET_MS);
+        const end = new Date(start.getTime() + 86400 * 1000);
+        return {start: start.toISOString(), end: end.toISOString()};
+      }
+      // One spin per user per calendar day (IST). Reads today's row from spin_plays;
+      // a missing table or failed fetch leaves the wheel open — a spin that cannot
+      // be saved is rejected at insert, so no discount is ever given for free.
+      async function checkTodaySpin(){
+        if(!currentUser) return;
+        const key = currentUser.id + "|" + istDateStr(new Date());
+        if(key === spinCheckKey) return;
+        spinCheckKey = key;
+        const {start, end} = istDayRange();
+        const { data, error } = await supabaseClient.from("spin_plays")
+          .select("discount,code,spun_at").eq("user_id", currentUser.id)
+          .gte("spun_at", start).lt("spun_at", end)
+          .order("spun_at", {ascending: false}).limit(1);
+        if(error) return;
+        const row = (data && data[0]) || null;
+        if(row && typeof row.discount === "number"){
+          const today = {discount: row.discount, code: row.code || ("SPIN" + row.discount)};
+          if(!spinToday || spinToday.discount !== today.discount || spinToday.code !== today.code){
+            spinToday = today;
+            spinPct = today.discount;
+            spinCode = today.code;
+            render();
+          }
+        }
+      }
+      // A spin only counts once its row is saved. Returns false on any failure
+      // (table missing, offline, RLS) — the caller must not apply a discount then.
+      async function recordSpin(value){
+        if(!currentUser) return false;
+        try{
+          const { error } = await supabaseClient.from("spin_plays").insert({
+            user_id: currentUser.id, discount: value, code: "SPIN" + value
+          });
+          return !error;
+        }catch(e){ return false; }
+      }
+      // Apply a landed spin: save it first, then show the result and take the
+      // user to the Plans tab with the discount applied. Returns true on success.
+      async function applySpinResult(value){
+        const code = "SPIN" + value;
+        const saved = await recordSpin(value);
+        const btn = $("spinBtn");
+        const r2 = $("spinResult");
+        if(!saved){
+          if(btn) btn.disabled = false;
+          if(r2) r2.innerHTML = '<div class="spin-note">Couldn\'t save your spin — check your connection and try again.</div>';
+          return false;
+        }
+        spinToday = {discount: value, code};
+        spinPct = value;
+        spinCode = code;
+        if(btn) btn.disabled = true;
+        if(r2){
+          r2.innerHTML = '<div class="spin-win">You won ' + value + '% OFF</div>' +
+            '<div class="spin-code">' + esc(code) + '</div>' +
+            '<div class="spin-note">Taking you to the plans with your discount applied…</div>';
+        }
+        updatePlanTeaser();
+        setTimeout(() => { if(currentRoute().name === "home") go("plans"); }, 1400);
+        return true;
+      }
       function pickWheelValue(){
         let r = Math.random(), acc = 0;
         for(let i = 0; i < WHEEL_VALUES.length; i++){
@@ -1029,7 +1129,7 @@
         ctx.stroke();
       }
       function spinWheel(){
-        if(wheelSpinning) return;
+        if(wheelSpinning || spinToday) return;
         const value = pickWheelValue();
         const idx = WHEEL_VALUES.indexOf(value);
         // Segment idx is centred at drawn angle (idx*60 - 60) deg; the pointer sits at the top (-90 deg).
@@ -1052,16 +1152,10 @@
         }
         const finish = () => {
           wheelSpinning = false;
-          spinPct = value;
-          spinCode = "SPIN" + value;
-          if(btn) btn.disabled = false;
-          const r2 = $("spinResult");
-          if(r2){
-            r2.innerHTML = '<div class="spin-win">You won ' + value + '% OFF</div>' +
-              '<div class="spin-code">' + esc(spinCode) + '</div>' +
-              '<div class="spin-note">Your code applies to the Monthly and Yearly plans.</div>';
-          }
-          updatePlanTeaser();
+          // applySpinResult saves the spin first; a failed save shows a retry
+          // message and applies no discount. The button stays disabled until
+          // it resolves, so a second spin cannot start meanwhile.
+          applySpinResult(value).catch(() => { if(btn) btn.disabled = false; });
         };
         if(wrap){
           let done = false;
@@ -1102,15 +1196,21 @@
         let html = appBar();
         html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
         html += '<div class="wheel-card">' +
-          '<h3>Spin &amp; Win</h3>' +
-          '<p class="mut">Spin the wheel — win 5% to 50% off your plan.</p>' +
+          '<h3>Spin &amp; Win — 5% to 50% off</h3>' +
+          '<p class="mut">Spin once to receive a discount between 5% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.</p>' +
           '<div class="wheel-wrap"><div class="wheel-pointer"></div><div id="wheelSpin" class="wheel-spin"><canvas id="wheelCanvas" width="280" height="280"></canvas></div></div>' +
           '<button class="btn btn-gold" id="spinBtn">SPIN</button>' +
           '<div id="spinResult" class="spin-result"></div>' +
+          '<p class="wheel-foot">One spin per user · 5%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans</p>' +
           '</div>';
-        html += '<div class="chips">' + activeChips().map(c =>
-          '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
-        html += '<div class="sechd"><b>Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
+        html += '<div class="sechd"><b>Categories</b><span>' + categoryCards().length + (categoryCards().length === 1 ? " category" : " categories") + '</span></div>';
+        html += '<div class="cat-grid">' + categoryCards().map(c =>
+          '<button class="cat-card' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' +
+          '<span class="cat-ic">' + catIcon(c.label) + '</span>' +
+          '<b>' + esc(c.label) + '</b>' +
+          '<span class="cat-desc">' + esc(c.description || "") + '</span>' +
+          '<span class="cat-count">' + (c.ids ? c.ids.length : 0) + ((c.ids ? c.ids.length : 0) === 1 ? " course" : " courses") + '</span></button>').join("") + '</div>';
+        html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
         if(dataError){
           html += '<div class="err-box">' + esc(dataError) + ' <button class="linkbtn" onclick="location.reload()">Retry</button></div>';
         }
@@ -1166,14 +1266,16 @@
         drawWheel();
         const wrap = $("wheelSpin");
         if(wrap){ wrap.style.transition = "none"; wrap.style.transform = "rotate(" + wheelAngle + "deg)"; }
-        if(spinPct){
-          const r = $("spinResult");
-          if(r) r.innerHTML = '<div class="spin-win">You won ' + spinPct + '% OFF</div>' +
-            '<div class="spin-code">' + esc(spinCode) + '</div>' +
-            '<div class="spin-note">Your code applies to the Monthly and Yearly plans.</div>';
-        }
         const btn = $("spinBtn");
+        if(spinToday){
+          if(btn) btn.disabled = true;
+          const r = $("spinResult");
+          if(r) r.innerHTML = '<div class="spin-win">You won ' + spinToday.discount + '% OFF</div>' +
+            '<div class="spin-code">' + esc(spinToday.code) + '</div>' +
+            '<div class="spin-note">You already spun today — come back tomorrow for another spin.</div>';
+        }
         if(btn) btn.addEventListener("click", spinWheel);
+        checkTodaySpin().catch(() => {});
       }
       function bindCourses(){
         wireSearch("courses");
@@ -1198,7 +1300,11 @@
       }
       function wireChips(){
         document.querySelectorAll("[data-chip]").forEach(b => {
-          b.addEventListener("click", () => { homeChip = b.dataset.chip; render(); });
+          b.addEventListener("click", () => {
+            // Tapping the active card again clears the filter back to All.
+            homeChip = (homeChip === b.dataset.chip) ? "All" : b.dataset.chip;
+            render();
+          });
         });
       }
       function wireCourseTaps(){
@@ -2016,6 +2122,15 @@
         });
       }
 
+      // Fresh sign-in always lands on Home: a tab other than Home left in the
+      // URL (e.g. #/courses from the signed-out screen) is not kept. Deep links
+      // to a course or lesson are preserved, as are returning sessions.
+      function landOnHomeAfterSignIn(event){
+        if(event !== "SIGNED_IN" || !currentUser) return;
+        const r = currentRoute();
+        if(isTabRoute(r.name) && r.name !== "home") location.hash = "#/home";
+      }
+
       // ---------- boot ----------
       // Normalize the Supabase user into the shape the UI expects
       // ({uid, id, email, displayName}) so the rest of the code is unchanged.
@@ -2036,6 +2151,7 @@
           ensureUserDoc().catch(() => {});
           loadAdminAccess().catch(() => {});
         }
+        landOnHomeAfterSignIn(event);
         startListeners();
         render();
       });
