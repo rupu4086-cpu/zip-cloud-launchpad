@@ -404,6 +404,7 @@
         {id:"risk-management", title:"Risk Management", desc:"Position sizing, stop-loss and capital protection — the most important skill."},
         {id:"big-trader-strategies", title:"Big Trader Strategies", desc:"How big traders build positions and book profits — the complete institutional-level playbook."}
       ];
+      // Static fallback chips — used when the admin-managed home_categories table is empty or unreachable.
       const TOPIC_CHIPS = [
         {label:"All", ids:null},
         {label:"Stock Market", ids:["basics"]},
@@ -595,6 +596,7 @@
       let plansNotice = null;    // one-line note on Plans after a locked tap
       let selectedPlan = "yearly";
       let homeQuery = "", homeChip = "All";
+      let homeCategories = null; // null = use static TOPIC_CHIPS (home_categories empty / not loaded yet)
       let unsubscribers = [];
 
       function access(){
@@ -701,6 +703,18 @@
                              : {monthlyLink:"", yearlyLink:"", enabled:false};
         render();
       }
+      function activeChips(){
+        // Admin-managed categories (home_categories) win when present; "All" stays built-in.
+        if(homeCategories && homeCategories.length) return [{label:"All", ids:null}].concat(homeCategories);
+        return TOPIC_CHIPS;
+      }
+      async function loadHomeCategories(){
+        const { data, error } = await supabaseClient.from("home_categories").select("*").order("sort_order");
+        if(error) throw error;
+        const rows = (data || []).filter(r => r && r.label);
+        homeCategories = rows.length ? rows.map(r => ({label: String(r.label), ids: Array.isArray(r.course_ids) ? r.course_ids.slice() : []})) : null;
+        render();
+      }
       async function loadSubscription(){
         if(!currentUser){ subscription = null; return; }
         const { data, error } = await supabaseClient.from("subscriptions").select("*")
@@ -747,15 +761,17 @@
           render();
         });
         loadPaymentConfig().catch(() => { /* config failure is non-fatal: Buy buttons stay disabled */ });
+        loadHomeCategories().catch(() => { /* categories failure is non-fatal: static chips stay */ });
         loadSubscription();
         // Live updates: re-fetch when the tables change (admin edits reflect instantly).
         // NOTE: postgres_changes only fires for tables added to the
         // supabase_realtime publication. If live updates do not arrive, run in
         // the Supabase SQL editor:
-        //   alter publication supabase_realtime add table courses, lessons, payment_config, subscriptions;
+        //   alter publication supabase_realtime add table courses, lessons, payment_config, subscriptions, home_categories;
         const ch = supabaseClient.channel("tt-live")
           .on("postgres_changes", {event: "*", schema: "public", table: "courses"}, () => loadCourses().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "payment_config"}, () => loadPaymentConfig().catch(() => {}))
+          .on("postgres_changes", {event: "*", schema: "public", table: "home_categories"}, () => loadHomeCategories().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "subscriptions"}, () => loadSubscription())
           .subscribe();
         unsubscribers.push(() => { supabaseClient.removeChannel(ch); });
@@ -1078,7 +1094,7 @@
 
       // ---------- Home (new: wheel, categories, courses, learning path, plans teaser) ----------
       function renderHome(){
-        const chip = TOPIC_CHIPS.find(c => c.label === homeChip) || TOPIC_CHIPS[0];
+        const chip = activeChips().find(c => c.label === homeChip) || activeChips()[0];
         const q = homeQuery.trim().toLowerCase();
         const visible = courses.filter(c =>
           (!chip.ids || chip.ids.includes(c.id)) &&
@@ -1092,7 +1108,7 @@
           '<button class="btn btn-gold" id="spinBtn">SPIN</button>' +
           '<div id="spinResult" class="spin-result"></div>' +
           '</div>';
-        html += '<div class="chips">' + TOPIC_CHIPS.map(c =>
+        html += '<div class="chips">' + activeChips().map(c =>
           '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
         html += '<div class="sechd"><b>Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
         if(dataError){
@@ -1118,7 +1134,7 @@
         return html;
       }
       function renderCourses(){
-        const chip = TOPIC_CHIPS.find(c => c.label === homeChip) || TOPIC_CHIPS[0];
+        const chip = activeChips().find(c => c.label === homeChip) || activeChips()[0];
         const visible = courses.filter(c =>
           (!chip.ids || chip.ids.includes(c.id)) &&
           (!homeQuery.trim() ||
@@ -1126,7 +1142,7 @@
             c.description.toLowerCase().includes(homeQuery.toLowerCase())));
         let html = appBar();
         html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
-        html += '<div class="chips">' + TOPIC_CHIPS.map(c =>
+        html += '<div class="chips">' + activeChips().map(c =>
           '<button class="chip' + (homeChip === c.label ? " on" : "") + '" data-chip="' + esc(c.label) + '">' + esc(c.label) + '</button>').join("") + '</div>';
         html += '<div class="sechd"><b>All Courses</b><span>' + visible.length + (visible.length === 1 ? " live course" : " live courses") + '</span></div>';
         if(dataError){
