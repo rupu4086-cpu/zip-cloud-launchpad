@@ -16,7 +16,9 @@ describe("Spin & Win wheel (learner site)", () => {
 
   function makeLearnerClient() {
     const queryFor = (table: string) => {
-      const query: Record<string, unknown> = { __table: table };
+      // Test-only mock: `any` keeps the chained Supabase-style query builder
+      // type-clean (tsc flags dot access on Record<string, unknown>).
+      const query: any = { __table: table };
       let inserted = false;
       query.select = vi.fn(() => query);
       query.eq = vi.fn((col: string, val: unknown) => {
@@ -49,7 +51,7 @@ describe("Spin & Win wheel (learner site)", () => {
       };
       return query;
     };
-    const channel: Record<string, unknown> = {};
+    const channel: any = {};
     channel.on = vi.fn(() => channel);
     channel.subscribe = vi.fn(() => channel);
     const client = {
@@ -221,7 +223,7 @@ describe("Spin & Win wheel (learner site)", () => {
     run("location.hash='#/home'; render()");
     const cv = document.getElementById("wheelCanvas") as HTMLCanvasElement;
     expect(cv).not.toBeNull();
-    const fakeCtx: Record<string, unknown> = {};
+    const fakeCtx: any = {};
     [
       "clearRect",
       "beginPath",
@@ -277,7 +279,9 @@ describe("Home parity with the preview", () => {
 
   function makeLearnerClient() {
     const queryFor = (table: string) => {
-      const query: Record<string, unknown> = { __table: table };
+      // Test-only mock: `any` keeps the chained Supabase-style query builder
+      // type-clean (tsc flags dot access on Record<string, unknown>).
+      const query: any = { __table: table };
       query.select = vi.fn(() => query);
       query.eq = vi.fn(() => query);
       query.gte = vi.fn(() => query);
@@ -293,7 +297,7 @@ describe("Home parity with the preview", () => {
       };
       return query;
     };
-    const channel: Record<string, unknown> = {};
+    const channel: any = {};
     channel.on = vi.fn(() => channel);
     channel.subscribe = vi.fn(() => channel);
     const client = {

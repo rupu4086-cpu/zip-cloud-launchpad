@@ -5,7 +5,9 @@ const html = readFileSync("public/admin.html", "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 
 function makeClient() {
-  const query: Record<string, unknown> = {};
+  // Test-only mock: `any` keeps the chained Supabase-style query builder
+  // type-clean (tsc flags dot access on Record<string, unknown>).
+  const query: any = {};
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
   query.order = vi.fn(() => query);
@@ -13,14 +15,14 @@ function makeClient() {
   query.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
   const client = {
     auth: {
-      getUser: vi.fn(async () => ({ data: { user: null }, error: null })),
+      getUser: vi.fn(async (): Promise<any> => ({ data: { user: null }, error: null })),
       onAuthStateChange: vi.fn(),
       signInWithOAuth: vi.fn(),
       signInWithPassword: vi.fn(),
       resetPasswordForEmail: vi.fn(),
       signOut: vi.fn(),
     },
-    from: vi.fn(() => query),
+    from: vi.fn((_table: string) => query),
     channel: vi.fn(),
     removeChannel: vi.fn(),
   };
@@ -57,11 +59,11 @@ describe("Hosted admin panel", () => {
       return makeClient().query as never;
     });
     run("loadCourses=async()=>{};loadDashboard=async()=>{};editingCourseId=null");
-    document.getElementById<HTMLInputElement>("cfId")!.value = "one-real-course";
-    document.getElementById<HTMLInputElement>("cfTitle")!.value = "My Real Course";
-    document.getElementById<HTMLTextAreaElement>("cfDesc")!.value = "Added by admin";
-    document.getElementById<HTMLInputElement>("cfOrder")!.value = "2";
-    document.getElementById<HTMLInputElement>("cfThumb")!.value = "";
+    (document.getElementById("cfId") as HTMLInputElement).value = "one-real-course";
+    (document.getElementById("cfTitle") as HTMLInputElement).value = "My Real Course";
+    (document.getElementById("cfDesc") as HTMLTextAreaElement).value = "Added by admin";
+    (document.getElementById("cfOrder") as HTMLInputElement).value = "2";
+    (document.getElementById("cfThumb") as HTMLInputElement).value = "";
     await run("saveCourse()");
     expect(insert).toHaveBeenCalledWith({
       id: "one-real-course",

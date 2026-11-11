@@ -15,7 +15,9 @@ describe("Home categories (learner site)", () => {
 
   function makeLearnerClient() {
     const queryFor = (table: string) => {
-      const query: Record<string, unknown> = { __table: table };
+      // Test-only mock: `any` keeps the chained Supabase-style query builder
+      // type-clean (tsc flags dot access on Record<string, unknown>).
+      const query: any = { __table: table };
       query.select = vi.fn(() => query);
       query.eq = vi.fn(() => query);
       query.order = vi.fn(() => query);
@@ -30,7 +32,7 @@ describe("Home categories (learner site)", () => {
       };
       return query;
     };
-    const channel: Record<string, unknown> = {};
+    const channel: any = {};
     channel.on = vi.fn(() => channel);
     channel.subscribe = vi.fn(() => channel);
     const client = {
@@ -116,7 +118,9 @@ describe("Home categories (admin panel)", () => {
 
   function makeAdminClient() {
     const queryFor = (table: string) => {
-      const query: Record<string, unknown> = { __table: table };
+      // Test-only mock: `any` keeps the chained Supabase-style query builder
+      // type-clean (tsc flags dot access on Record<string, unknown>).
+      const query: any = { __table: table };
       query.select = vi.fn(() => query);
       query.eq = vi.fn((col: string, val: unknown) => {
         calls.push({ table, op: "eq", filter: { col, val } });
@@ -149,7 +153,7 @@ describe("Home categories (admin panel)", () => {
       };
       return query;
     };
-    const channel: Record<string, unknown> = {};
+    const channel: any = {};
     channel.on = vi.fn(() => channel);
     channel.subscribe = vi.fn(() => channel);
     const client = {

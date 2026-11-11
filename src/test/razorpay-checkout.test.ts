@@ -13,8 +13,8 @@ const flush = () => new Promise((r) => setTimeout(r, 5));
 class MockRazorpay {
   static instances: MockRazorpay[] = [];
   static opened: Record<string, unknown>[] = [];
-  options: Record<string, unknown>;
-  constructor(options: Record<string, unknown>) {
+  options: any;
+  constructor(options: any) {
     this.options = options;
     MockRazorpay.instances.push(this);
   }
@@ -25,14 +25,16 @@ class MockRazorpay {
 
 describe("Razorpay Checkout (learner site)", () => {
   let run: (code: string) => unknown;
-  let paymentsRows: Record<string, unknown>[];
-  let subscriptionInserts: Record<string, unknown>[];
+  let paymentsRows: any[];
+  let subscriptionInserts: any[];
   let openSpy: ReturnType<typeof vi.fn>;
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   function makeLearnerClient() {
     const queryFor = (table: string) => {
-      const query: Record<string, unknown> = { __table: table };
+      // Test-only mock: `any` keeps the chained Supabase-style query builder
+      // type-clean (tsc flags dot access on Record<string, unknown>).
+      const query: any = { __table: table };
       let inserted: Record<string, unknown> | null = null;
       let updated: Record<string, unknown> | null = null;
       let eqVal: unknown = null;
@@ -73,7 +75,7 @@ describe("Razorpay Checkout (learner site)", () => {
       };
       return query;
     };
-    const channel: Record<string, unknown> = {};
+    const channel: any = {};
     channel.on = vi.fn(() => channel);
     channel.subscribe = vi.fn(() => channel);
     return {
@@ -124,7 +126,7 @@ describe("Razorpay Checkout (learner site)", () => {
     showPlans();
     (document.querySelector('[data-buy="monthly"]') as HTMLButtonElement).click();
     expect(MockRazorpay.instances).toHaveLength(1);
-    const opts = MockRazorpay.instances[0].options;
+    const opts = MockRazorpay.instances[0]!.options;
     expect(opts.key).toBe("rzp_test_abc");
     expect(opts.amount).toBe(60000); // ₹1,000 minus 40% = ₹600, in paise
     expect(opts.currency).toBe("INR");
@@ -137,8 +139,8 @@ describe("Razorpay Checkout (learner site)", () => {
     run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_live_xyz'}; spinPct=0; spinCode='';");
     showPlans();
     (document.querySelector('[data-buy="yearly"]') as HTMLButtonElement).click();
-    expect(MockRazorpay.instances[0].options.amount).toBe(300000);
-    expect(MockRazorpay.instances[0].options.description).toBe("Yearly plan");
+    expect(MockRazorpay.instances[0]!.options.amount).toBe(300000);
+    expect(MockRazorpay.instances[0]!.options.description).toBe("Yearly plan");
   });
 
   it("shows a clear message and opens nothing when no Key ID and no link are set", () => {
@@ -162,7 +164,7 @@ describe("Razorpay Checkout (learner site)", () => {
     run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_test_abc'}; spinPct=40; spinCode='SPIN40';");
     showPlans();
     (document.querySelector('[data-buy="monthly"]') as HTMLButtonElement).click();
-    const handler = MockRazorpay.instances[0].options.handler as (r: unknown) => void;
+    const handler = MockRazorpay.instances[0]!.options.handler as (r: unknown) => void;
     handler({ razorpay_payment_id: "pay_test123", razorpay_signature: "sig" });
     await flush();
     await flush();
@@ -171,8 +173,8 @@ describe("Razorpay Checkout (learner site)", () => {
     ]);
     // The discounted payment activates the plan (amount check accepts the spin price).
     expect(subscriptionInserts).toHaveLength(1);
-    expect(subscriptionInserts[0].plan_id).toBe("monthly");
-    expect(subscriptionInserts[0].status).toBe("active");
+    expect(subscriptionInserts[0]!.plan_id).toBe("monthly");
+    expect(subscriptionInserts[0]!.status).toBe("active");
     expect(run("access().hasActiveSubscription")).toBe(true);
     expect(document.querySelector("#view")?.textContent).toContain("now active");
   });
@@ -189,7 +191,7 @@ describe("Razorpay Checkout (learner site)", () => {
     run("spinPct=40; spinCode='SPIN40';");
     await run("checkMyPayment()");
     expect(subscriptionInserts).toHaveLength(1);
-    expect(subscriptionInserts[0].plan_id).toBe("yearly");
+    expect(subscriptionInserts[0]!.plan_id).toBe("yearly");
   });
 
   it("verifyPaymentId accepts a captured payment at the spin-discounted amount", async () => {
@@ -204,7 +206,7 @@ describe("Razorpay Checkout (learner site)", () => {
     run("spinPct=50; spinCode='SPIN50';");
     await run("verifyPaymentId('pay_disc2')");
     expect(subscriptionInserts).toHaveLength(1);
-    expect(subscriptionInserts[0].plan_id).toBe("monthly");
+    expect(subscriptionInserts[0]!.plan_id).toBe("monthly");
   });
 });
 
@@ -217,7 +219,9 @@ describe("Razorpay Key ID (admin panel)", () => {
   let insertPayload: Record<string, unknown> | null;
 
   function makeAdminClient() {
-    const query: Record<string, unknown> = {};
+    // Test-only mock: `any` keeps the chained Supabase-style query builder
+    // type-clean (tsc flags dot access on Record<string, unknown>).
+    const query: any = {};
     query.select = vi.fn(() => query);
     query.eq = vi.fn(() => query);
     query.order = vi.fn(() => query);

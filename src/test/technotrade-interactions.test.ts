@@ -5,19 +5,21 @@ const html = readFileSync("public/technotrade.html", "utf8");
 const script = html.split('<script>')[1]?.split('// ---------- boot ----------')[0];
 
 function makeLearnerClient() {
-  const query: Record<string, unknown> = {};
+  // Test-only mock: `any` keeps the chained Supabase-style query builder
+  // type-clean (tsc flags dot access on Record<string, unknown>).
+  const query: any = {};
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
   query.order = vi.fn(() => query);
   query.limit = vi.fn(() => query);
   query.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
-  const channel: Record<string, unknown> = {};
+  const channel: any = {};
   channel.on = vi.fn(() => channel);
   channel.subscribe = vi.fn(() => channel);
   const client = {
     auth: {
       getUser: vi.fn(async () => ({ data: { user: null }, error: null })),
-      getSession: vi.fn(async () => ({ data: { session: null }, error: null })),
+      getSession: vi.fn(async (): Promise<any> => ({ data: { session: null }, error: null })),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: () => {} } } })),
       signInWithOAuth: vi.fn(),
       signInWithPassword: vi.fn(),
