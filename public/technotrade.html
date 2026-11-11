@@ -541,6 +541,7 @@
       let toastTimer = null;
       function toast(msg){
         const el = $("toast");
+        if(!el) return;
         el.textContent = msg;
         el.classList.add("show");
         clearTimeout(toastTimer);
@@ -931,7 +932,7 @@
         const u = currentUser;
         const greet = "Hello" + (firstNameOf(u) ? ", " + esc(firstNameOf(u)) : "");
         return '<div class="appbar">' +
-          '<div class="logo" style="padding:0;border-radius:50%;overflow:hidden"><img src="/technotrade-logo.png" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
+          '<div class="logo" style="padding:0;border-radius:50%;overflow:hidden"><img src="/technotrade-logo.png?v=1" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
           '<div class="brand"><b>TechnoTrade Academy</b><span>' + esc(greet.toUpperCase()) + '</span></div>' +
           '<button class="iconbtn" onclick="go(\'notifications\')" aria-label="Notifications">🔔</button>' +
           '<button class="avatar" onclick="go(\'profile\')" aria-label="Profile">' + esc(initialsOf(u && u.displayName, u && u.email)) + '</button>' +
@@ -964,6 +965,8 @@
         else if(r.name === "payments"){ view.innerHTML = renderPaymentHistory(); bindPaymentHistory(); }
         else if(r.name === "notifications"){ view.innerHTML = renderNotifications(); }
         else if(r.name === "help"){ view.innerHTML = renderSupportChat(); bindSupportChat(); }
+        else if(r.name === "refer"){ view.innerHTML = renderRefer(); bindRefer(); }
+        else if(r.name === "wallet"){ view.innerHTML = renderWallet(); bindWallet(); }
         else if(r.name === "settings"){ view.innerHTML = renderSettings(); bindSettings(); }
         else { view.innerHTML = renderHome(); bindHome(); }
         fields.forEach(field => {
@@ -976,7 +979,7 @@
       // ---------- Login ----------
       function renderLogin(){
         return '<div class="auth">' +
-          '<div class="logo-big" style="padding:0;border-radius:50%;overflow:hidden"><img src="/technotrade-logo.png" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
+          '<div class="logo-big" style="padding:0;border-radius:50%;overflow:hidden"><img src="/technotrade-logo.png?v=1" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
           '<h1>TechnoTrade Academy</h1>' +
           '<p class="sub">Learn trading. Trade smart.</p>' +
           '<div id="authMsg"></div>' +
@@ -984,6 +987,7 @@
             '<button class="btn btn-navy" id="googleBtn">Continue with Google</button>' +
             '<div class="divider" id="emailDivider">or sign in with email</div>' +
             '<div id="signupNameBox" class="hide"><label for="authName">Your name</label><input id="authName" type="text" placeholder="Rupu Buragohain" autocomplete="name"></div>' +
+            '<div id="signupRefBox" class="hide"><label for="authRefCode">Referral code (optional)</label><input id="authRefCode" type="text" placeholder="e.g. ABC12345" autocomplete="off" style="text-transform:uppercase"></div>' +
             '<label for="authEmail">Email</label>' +
             '<input id="authEmail" type="email" placeholder="you@gmail.com" autocomplete="email">' +
             '<label for="authPassword">Password</label>' +
@@ -1011,6 +1015,7 @@
         function setMode(m){
           mode = m;
           $("signupNameBox").classList.toggle("hide", m !== "signup");
+          $("signupRefBox").classList.toggle("hide", m !== "signup");
           $("emailBtn").textContent = m === "signup" ? "Create account" : "Sign in";
           $("toggleMode").textContent = m === "signup" ? "Already have an account? Sign in" : "Create a new account";
           $("emailDivider").textContent = m === "signup" ? "or sign up with email" : "or sign in with email";
@@ -1020,6 +1025,18 @@
         });
         // The signed-out landing page shows the sign-up form first.
         setMode("signup");
+        // Referral link (?ref=CODE) auto-fills the code box, and the code is
+        // kept for attribution when the new account signs in.
+        (function prefillReferralCode(){
+          let code = "";
+          try{
+            code = parseReferralCodeFromUrl(location.search || "");
+            if(!code) code = sessionStorage.getItem("tt_ref_code") || "";
+            if(code) sessionStorage.setItem("tt_ref_code", code);
+          }catch(e){ code = ""; }
+          const box = $("authRefCode");
+          if(box && code) box.value = code;
+        })();
         $("emailBtn").addEventListener("click", async () => {
           const email = $("authEmail").value.trim();
           const password = $("authPassword").value;
@@ -1029,15 +1046,30 @@
           try{
             if(mode === "signup"){
               const name = ($("authName") && $("authName").value || "").trim();
+              let refCode = ($("authRefCode") && $("authRefCode").value || "").trim().toUpperCase();
+              // Validate the code up front so a typo is caught before the
+              // account is created; an invalid code never blocks sign-up.
+              if(refCode){
+                try{
+                  const { data: owner } = await supabaseClient.from("referral_codes").select("user_id").eq("code", refCode).maybeSingle();
+                  if(!owner){
+                    showMsg("Referral code not found — continuing without it.", "err");
+                    refCode = "";
+                  }
+                }catch(lookupErr){ refCode = ""; }
+              }
               await signUpEmail(email, password, name);
               // Auto-confirm email is off, so sign-up returns no session
               // until the user confirms via email — tell them, and switch
               // to sign-in instead of leaving a disabled button.
               const { data: { session } } = await supabaseClient.auth.getSession();
               if(!session){
+                if(refCode){ try{ localStorage.setItem("tt_ref_code", refCode); }catch(e){} }
                 showMsg("Account created — we sent a confirmation link to " + email + ". Open it, then sign in here.", "ok");
                 setMode("signin");
                 $("emailBtn").disabled = false;
+              } else if(refCode){
+                await maybeAttributeReferral(refCode);
               }
             } else {
               await signInEmail(email, password);
@@ -2077,6 +2109,9 @@
         });
         if(error) throw error;
         subscription = {planId: record.planId, status: "active", expiresAt: {toDate: () => exp}};
+        // First plan purchase: reward the referrer once, if this user was
+        // referred (non-fatal — the subscription is already active).
+        try{ await maybeRewardReferral(record.userId, record.planId); }catch(e){}
         render();
         store.addInbox("Subscription activated", "Your " + plan.name + " plan is active until " + fmtDate(exp) + ".");
       }
@@ -2180,6 +2215,8 @@
           {icon:"⬇️", t:"Downloads", s:"Offline lesson videos", route:"downloads"},
           {icon:"🧾", t:"Payment history", s:"Your Razorpay payments", route:"payments"},
           {icon:"🔔", t:"Notifications", s:"Subscription updates", route:"notifications"},
+          {icon:"🎁", t:"Refer & Earn", s:"Invite friends, earn ₹50–₹100", route:"refer"},
+          {icon:"👛", t:"Wallet", s:"Balance and UPI withdrawals", route:"wallet"},
           {icon:"❓", t:"Help & Support", s:"Chat with us", route:"help"},
           {icon:"⚙️", t:"Settings", s:"Notifications, video quality, version", route:"settings"}
         ];
@@ -2346,6 +2383,271 @@
         });
       }
 
+      // ---------- Referrals & wallet ----------
+      // Referral reward (Rupu, 2026-11-11): the referrer earns ₹50 when the
+      // referred user buys Monthly first, ₹100 when they buy Yearly first.
+      // First purchase only, once per referred user. Payout is manual: the
+      // user requests a UPI withdrawal (min ₹100) and the admin pays from
+      // their own UPI app, then marks the request Paid in the admin panel.
+      // Tables: referral_codes {user_id PK, code unique}, referrals {id,
+      // code, referrer_id, referred_id unique, status pending|rewarded,
+      // reward_amount_paise}, wallet_transactions {id, user_id, referral_id,
+      // kind referral_credit|withdrawal, amount_paise, status
+      // completed|requested|paid|rejected, upi_id}.
+      const REFERRAL_REWARD_PAISE = {monthly: 5000, yearly: 10000};
+      const WITHDRAW_MIN_PAISE = 10000;
+      const REFERRAL_SITE_URL = "https://technoacademy.online/technotrade.html";
+      function referralRewardForPlan(planId){ return planId === "yearly" ? REFERRAL_REWARD_PAISE.yearly : REFERRAL_REWARD_PAISE.monthly; }
+      function generateReferralCode(){
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let out = "";
+        try{
+          const buf = new Uint8Array(8);
+          if(window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(buf);
+          else for(let i = 0; i < 8; i++) buf[i] = Math.floor(Math.random() * 256);
+          for(let i = 0; i < 8; i++) out += chars[buf[i] % chars.length];
+        }catch(e){
+          for(let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return out;
+      }
+      function parseReferralCodeFromUrl(search){
+        try{
+          const params = new URLSearchParams(search || "");
+          const code = (params.get("ref") || "").trim().toUpperCase();
+          return /^[A-Z0-9]{4,12}$/.test(code) ? code : "";
+        }catch(e){ return ""; }
+      }
+      function referralLink(code){ return REFERRAL_SITE_URL + "?ref=" + encodeURIComponent(code || ""); }
+      function isValidUpiId(value){
+        return /^[a-zA-Z0-9._-]{2,}@[a-zA-Z][a-zA-Z0-9]{1,}$/.test(String(value || "").trim());
+      }
+      // Balance counts completed credits and requested/paid withdrawals (a
+      // requested withdrawal already reserves its amount); rejected
+      // requests never count.
+      function walletBalancePaise(txns){
+        return (txns || []).reduce((sum, t) => {
+          if(t.status === "completed" || t.status === "paid" || t.status === "requested") return sum + (t.amountPaise || 0);
+          return sum;
+        }, 0);
+      }
+      function walletTotalEarnedPaise(txns){
+        return (txns || []).filter(t => t.kind === "referral_credit" && t.status === "completed")
+          .reduce((sum, t) => sum + (t.amountPaise || 0), 0);
+      }
+      function referralRow(r){
+        return {id: r.id, code: r.code || "", referrerId: r.referrer_id || "", referredId: r.referred_id || "",
+          status: r.status || "pending", rewardPaise: r.reward_amount_paise || 0,
+          createdAtMs: r.created_at ? Date.parse(r.created_at) : 0};
+      }
+      function walletRow(t){
+        return {id: t.id, userId: t.user_id || "", kind: t.kind || "", amountPaise: t.amount_paise || 0,
+          status: t.status || "completed", upiId: t.upi_id || "",
+          createdAtMs: t.created_at ? Date.parse(t.created_at) : 0};
+      }
+      let myReferralCode = null;
+      let myReferrals = null;
+      let myReferralsLoading = false;
+      let walletTxns = null;
+      let walletLoading = false;
+      async function ensureReferralCode(){
+        if(myReferralCode) return myReferralCode;
+        if(!currentUser) return "";
+        const uid = currentUser.id;
+        try{
+          const { data, error } = await supabaseClient.from("referral_codes").select("code").eq("user_id", uid).maybeSingle();
+          if(!error && data && data.code){ myReferralCode = data.code; return myReferralCode; }
+          for(let attempt = 0; attempt < 5; attempt++){
+            const code = generateReferralCode();
+            const { error: insErr } = await supabaseClient.from("referral_codes").insert({user_id: uid, code});
+            if(!insErr){ myReferralCode = code; return code; }
+          }
+        }catch(e){ /* code generation failure is non-fatal: the view shows the empty state */ }
+        return "";
+      }
+      async function maybeAttributeReferral(code){
+        code = String(code || "").trim().toUpperCase();
+        if(!code || !currentUser) return false;
+        try{
+          const { data: owner, error } = await supabaseClient.from("referral_codes").select("user_id").eq("code", code).maybeSingle();
+          if(error || !owner) return false;
+          if(owner.user_id === currentUser.id){ toast("You can't use your own referral code."); return false; }
+          const { error: insErr } = await supabaseClient.from("referrals").insert({
+            code, referrer_id: owner.user_id, referred_id: currentUser.id, status: "pending"
+          });
+          if(insErr) return false; // duplicate (one referral per user) or RLS — silent
+          return true;
+        }catch(e){ return false; }
+      }
+      // Rewards the referrer once, when the referred user buys their FIRST
+      // plan. The update only matches a still-pending row, so concurrent
+      // calls (checkout success + manual verify) can only reward once.
+      async function maybeRewardReferral(userId, planId){
+        if(!userId) return;
+        try{
+          const { data: refs, error } = await supabaseClient.from("referrals").select("*").eq("referred_id", userId).eq("status", "pending").limit(1);
+          if(error || !refs || !refs.length) return;
+          const ref = refs[0];
+          const { data: done } = await supabaseClient.from("referrals").select("id").eq("referred_id", userId).eq("status", "rewarded").limit(1);
+          if(done && done.length) return;
+          const rewardPaise = referralRewardForPlan(planId);
+          const { data: updated, error: updErr } = await supabaseClient.from("referrals")
+            .update({status: "rewarded", reward_amount_paise: rewardPaise})
+            .eq("id", ref.id).eq("status", "pending").select("id");
+          if(updErr || !updated || !updated.length) return; // lost the race: someone else rewarded it
+          await supabaseClient.from("wallet_transactions").insert({
+            user_id: ref.referrer_id, referral_id: ref.id, kind: "referral_credit",
+            amount_paise: rewardPaise, status: "completed"
+          });
+        }catch(e){ /* reward failure is non-fatal: the subscription is already active */ }
+      }
+      async function loadMyReferrals(){
+        if(!currentUser) return;
+        if(myReferralsLoading) return;
+        myReferralsLoading = true;
+        const uid = currentUser.id;
+        try{
+          const { data, error } = await supabaseClient.from("referrals").select("*")
+            .eq("referrer_id", uid).order("created_at", {ascending: false});
+          if(error) throw error;
+          if(!currentUser || currentUser.id !== uid) return;
+          myReferrals = (data || []).map(referralRow);
+          const r = currentRoute();
+          if(r.name === "refer") render();
+        }catch(e){ /* non-fatal: the empty state stays */ }
+        finally{ myReferralsLoading = false; }
+      }
+      function renderRefer(){
+        const code = myReferralCode || "";
+        const link = code ? referralLink(code) : "";
+        const refs = myReferrals || [];
+        const earned = refs.filter(r => r.status === "rewarded").reduce((s, r) => s + (r.rewardPaise || 0), 0);
+        let html = subHead("Refer & Earn", "profile");
+        html += '<div class="card"><div class="prow"><b>Your referral code</b><b>' + esc(code || "…") + '</b></div>' +
+          '<p class="mut">Share your link — when a friend signs up with it and buys their first plan, you earn ₹50 (Monthly) or ₹100 (Yearly).</p>' +
+          (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-gold" id="copyRefLinkBtn">Copy referral link</button>' +
+          '<button class="btn btn-white" id="copyRefCodeBtn">Copy code</button></div>' : "") +
+          '</div>';
+        html += '<div class="card"><div class="prow"><b>Friends referred</b><b>' + refs.length + '</b></div>' +
+          '<div class="prow"><b>Total earned</b><b>' + fmtRs(earned) + '</b></div></div>';
+        if(myReferrals === null){
+          html += '<div class="loading">Loading referrals…</div>';
+        } else if(!refs.length){
+          html += '<div class="empty"><b>No referrals yet</b><p>Share your link to start earning.</p></div>';
+        } else {
+          html += refs.map(r => '<div class="card"><div class="prow"><b>' + (r.status === "rewarded" ? "Rewarded " + fmtRs(r.rewardPaise) : "Pending — waiting for first purchase") + '</b><b>' + esc(r.status) + '</b></div>' +
+            '<p class="mut">Code: ' + esc(r.code) + ' · ' + fmtDateTime(r.createdAtMs) + '</p></div>').join("");
+        }
+        return html;
+      }
+      function bindRefer(){
+        ensureReferralCode().then(() => { const r = currentRoute(); if(r.name === "refer") render(); }).catch(() => {});
+        if(myReferrals === null) loadMyReferrals().catch(() => {});
+        const copyLink = $("copyRefLinkBtn");
+        if(copyLink) copyLink.addEventListener("click", () => { copyText(referralLink(myReferralCode || "")); });
+        const copyCode = $("copyRefCodeBtn");
+        if(copyCode) copyCode.addEventListener("click", () => { copyText(myReferralCode || ""); });
+      }
+      function copyText(text){
+        if(!text) return;
+        try{
+          if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(text).then(() => toast("Copied.")).catch(() => toast("Copy failed — long-press to copy."));
+            return;
+          }
+        }catch(e){}
+        try{
+          const ta = document.createElement("textarea");
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          document.execCommand("copy"); document.body.removeChild(ta);
+          toast("Copied.");
+        }catch(e){ toast("Copy failed — long-press to copy."); }
+      }
+      async function loadWallet(){
+        if(!currentUser) return;
+        if(walletLoading) return;
+        walletLoading = true;
+        const uid = currentUser.id;
+        try{
+          const { data, error } = await supabaseClient.from("wallet_transactions").select("*")
+            .eq("user_id", uid).order("created_at", {ascending: false});
+          if(error) throw error;
+          if(!currentUser || currentUser.id !== uid) return;
+          walletTxns = (data || []).map(walletRow);
+          const r = currentRoute();
+          if(r.name === "wallet") render();
+        }catch(e){ /* non-fatal */ }
+        finally{ walletLoading = false; }
+      }
+      function renderWallet(){
+        const txns = walletTxns || [];
+        const balance = walletBalancePaise(txns);
+        const earned = walletTotalEarnedPaise(txns);
+        const pendingOut = txns.filter(t => t.kind === "withdrawal" && t.status === "requested")
+          .reduce((s, t) => s + Math.abs(t.amountPaise || 0), 0);
+        let html = subHead("Wallet", "profile");
+        html += '<div class="card"><div class="prow"><b>Available balance</b><b>' + (balance < 0 ? "-" : "") + fmtRs(Math.abs(balance)) + '</b></div>' +
+          '<p class="mut">Total earned from referrals: ' + fmtRs(earned) +
+          (pendingOut > 0 ? ' · ' + fmtRs(pendingOut) + ' withdrawal pending' : "") + '</p></div>';
+        html += '<div class="card"><b>Withdraw via UPI</b>' +
+          '<p class="mut">Minimum withdrawal ₹100. The admin pays from their UPI app and marks your request Paid.</p>' +
+          '<label for="withdrawUpi">UPI ID</label><input id="withdrawUpi" type="text" placeholder="name@okhdfcbank" autocomplete="off">' +
+          '<label for="withdrawAmount">Amount (₹)</label><input id="withdrawAmount" type="number" min="100" placeholder="100">' +
+          '<div id="withdrawMsg"></div>' +
+          '<div style="height:12px"></div>' +
+          '<button class="btn btn-gold" id="withdrawBtn">Request withdrawal</button></div>';
+        if(walletTxns === null){
+          html += '<div class="loading">Loading transactions…</div>';
+        } else if(!txns.length){
+          html += '<div class="empty"><b>No transactions yet</b><p>Referral earnings will appear here.</p></div>';
+        } else {
+          html += txns.map(t => {
+            const label = t.kind === "referral_credit" ? "Referral reward" : "UPI withdrawal";
+            const sign = t.amountPaise >= 0 ? "+" : "-";
+            return '<div class="card"><div class="prow"><b>' + esc(label) + '</b><b>' + sign + fmtRs(Math.abs(t.amountPaise)) + '</b></div>' +
+              '<p class="mut">Status: ' + esc(t.status) + (t.upiId ? ' · UPI: ' + esc(t.upiId) : "") + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
+          }).join("");
+        }
+        return html;
+      }
+      function bindWallet(){
+        if(walletTxns === null) loadWallet().catch(() => {});
+        const btn = $("withdrawBtn");
+        if(btn) btn.addEventListener("click", () => { requestWithdrawal().catch(() => {}); });
+      }
+      async function requestWithdrawal(){
+        const upiEl = $("withdrawUpi"), amtEl = $("withdrawAmount"), msgEl = $("withdrawMsg");
+        const showMsg = (text, kind) => { if(msgEl) msgEl.innerHTML = text ? '<div class="' + (kind === "err" ? "err-box" : "ok-box") + '" style="margin:0 0 12px">' + esc(text) + '</div>' : ""; };
+        if(!currentUser) return;
+        const upiId = upiEl ? upiEl.value.trim() : "";
+        const amountRs = amtEl ? Math.floor(Number(amtEl.value)) : NaN;
+        if(!isValidUpiId(upiId)) return showMsg("Enter a valid UPI ID (like name@okhdfcbank).", "err");
+        if(!amountRs || isNaN(amountRs)) return showMsg("Enter an amount in ₹.", "err");
+        if(amountRs < 100) return showMsg("Minimum withdrawal is ₹100.", "err");
+        const amountPaise = amountRs * 100;
+        const balance = walletBalancePaise(walletTxns || []);
+        if(amountPaise > balance) return showMsg("Amount is more than your available balance (" + fmtRs(balance) + ").", "err");
+        const btn = $("withdrawBtn");
+        if(btn) btn.disabled = true;
+        try{
+          const { error } = await supabaseClient.from("wallet_transactions").insert({
+            user_id: currentUser.id, kind: "withdrawal", amount_paise: -amountPaise,
+            status: "requested", upi_id: upiId
+          });
+          if(error) throw error;
+          walletTxns = null;
+          toast("Withdrawal requested — the admin will pay it and mark it Paid.");
+          await loadWallet();
+          if(upiEl) upiEl.value = "";
+          if(amtEl) amtEl.value = "";
+        }catch(e){
+          showMsg("Could not request the withdrawal — check your connection and try again.", "err");
+        }finally{
+          if(btn) btn.disabled = false;
+        }
+      }
+
       // ---------- Help & Support chat (WhatsApp-style, in-app) ----------
       // Messages live in public.support_messages: {id, user_id, sender
       // ("user"|"admin"), message, created_at}. The learner sees only their
@@ -2442,12 +2744,25 @@
         if(event === "TOKEN_REFRESHED" && uid === lastAuthUid) return; // silent refresh: nothing to redo
         // A different account must never see the previous account's support thread.
         if(uid !== lastAuthUid) supportMessages = null;
+        // Same for referral + wallet data, and for a referral code carried in
+        // from a link (?ref=) or a just-finished sign-up: attribute it once
+        // on a fresh sign-in, then clear it so it can never attach twice.
+        if(uid !== lastAuthUid){ myReferralCode = null; myReferrals = null; walletTxns = null; }
         lastAuthUid = uid;
         currentUser = user ? normalizeUser(user) : null;
         isAdmin = false;
         if(currentUser){
           ensureUserDoc().catch(() => {});
           loadAdminAccess().catch(() => {});
+          if(event === "SIGNED_IN"){
+            let storedRef = "";
+            try{
+              storedRef = sessionStorage.getItem("tt_ref_code") || localStorage.getItem("tt_ref_code") || "";
+              sessionStorage.removeItem("tt_ref_code");
+              localStorage.removeItem("tt_ref_code");
+            }catch(e){ storedRef = ""; }
+            if(storedRef) maybeAttributeReferral(storedRef).catch(() => {});
+          }
         }
         landOnHomeAfterSignIn(event);
         startListeners();

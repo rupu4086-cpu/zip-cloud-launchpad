@@ -87,7 +87,7 @@
 <body>
 <header>
   <div class="head-inner">
-    <img class="logo" src="/technotrade-logo.png" alt="TechnoTrade Academy">
+    <img class="logo" src="/technotrade-logo.png?v=1" alt="TechnoTrade Academy">
     <div><h1>TechnoTrade <span>Academy</span> — Admin</h1><p>Only the approved admin account can make changes.</p></div>
     <a class="toplink" href="/technotrade.html">Learner website →</a>
   </div>
@@ -233,6 +233,17 @@
         </div>
       </div>
     </section>
+
+    <section data-sec="referrals" class="hide">
+      <div class="card"><h2>Referrals &amp; wallet</h2>
+        <p class="note">Referrers earn ₹50 when a referred friend buys Monthly first, ₹100 for Yearly first. Withdrawals are paid manually from your UPI app — mark a request Paid only after you have paid it.</p>
+        <div id="referralMsg" class="msg"></div>
+        <div class="actions"><button class="secondary" onclick="loadReferrals()">Reload</button></div>
+        <h3>Totals</h3><div id="referralTotals"></div>
+        <h3>Referrals</h3><div id="referralList"></div>
+        <h3>Withdrawal requests</h3><div id="withdrawalList"></div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -288,13 +299,13 @@ async function refreshAccess(){
 supabaseClient.auth.onAuthStateChange(event=>{if(event==="SIGNED_IN"||event==="SIGNED_OUT"||event==="USER_UPDATED"||event==="INITIAL_SESSION")refreshAccess();});
 refreshAccess();
 
-const TABS=[["dashboard","Dashboard"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"],["support","Support"]];
+const TABS=[["dashboard","Dashboard"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"],["support","Support"],["referrals","Referrals"]];
 let activeTab="dashboard";
 function buildTabs(){$("tabs").innerHTML=TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(id===activeTab?"active":"")+'" onclick="showTab(\''+id+'\')">'+label+"</button>").join("");}
 function showTab(id){activeTab=id;document.querySelectorAll("#tabs button").forEach(button=>button.classList.toggle("active",button.dataset.tab===id));document.querySelectorAll("#app section").forEach(section=>section.classList.toggle("hide",section.dataset.sec!==id));}
 buildTabs();
 
-async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications(),loadSupport()]);}
+async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications(),loadSupport(),loadReferrals()]);}
 async function loadDashboard(){
   try{
     const [courses,lessons,users,subs,payments]=await Promise.all([
@@ -424,6 +435,78 @@ async function sendSupportReply(){
   $("supportReply").value="";
   await loadSupport();
   showMsg($("supportMsg"),"Reply sent.","ok");
+}
+
+let referralRows=[],withdrawalRows=[],referralUsers={},referralSubs={};
+async function loadReferrals(){
+  if(!isAdmin)return;
+  const [{data:refs,error:refError},{data:txns,error:txnError},{data:users,error:userError},{data:subs,error:subError}]=await Promise.all([
+    supabaseClient.from("referrals").select("*").order("created_at",{ascending:false}).limit(100),
+    supabaseClient.from("wallet_transactions").select("*").eq("kind","withdrawal").order("created_at",{ascending:false}).limit(100),
+    supabaseClient.from("users").select("id,email,display_name"),
+    supabaseClient.from("subscriptions").select("user_id,plan_id,created_at").order("created_at",{ascending:true})
+  ]);
+  if(refError)return showMsg($("referralMsg"),"Could not load referrals: "+errorText(refError),"err");
+  if(txnError)return showMsg($("referralMsg"),"Could not load withdrawals: "+errorText(txnError),"err");
+  if(userError)return showMsg($("referralMsg"),"Could not load learners: "+errorText(userError),"err");
+  if(subError)return showMsg($("referralMsg"),"Could not load subscriptions: "+errorText(subError),"err");
+  referralRows=refs||[];withdrawalRows=txns||[];
+  referralUsers=Object.fromEntries((users||[]).map(user=>[user.id,user]));
+  referralSubs={};
+  (subs||[]).forEach(s=>{if(!referralSubs[s.user_id])referralSubs[s.user_id]=s;});
+  renderReferrals();
+}
+function referralUserLabel(userId){const user=referralUsers[userId];return user?(user.display_name||user.email||userId):userId;}
+function renderReferrals(){
+  const rewarded=referralRows.filter(r=>r.status==="rewarded");
+  const totalPaid=withdrawalRows.filter(w=>w.status==="paid").reduce((s,w)=>s+Math.abs(w.amount_paise||0),0);
+  const totalEarned=rewarded.reduce((s,r)=>s+(r.reward_amount_paise||0),0);
+  $("referralTotals").innerHTML='<p class="mut">Referrals: '+referralRows.length+' · Rewarded: '+rewarded.length+' · Total earned: '+esc(fmtRs(totalEarned/100))+' · Withdrawals paid: '+esc(fmtRs(totalPaid/100))+'</p>';
+  $("referralList").innerHTML=referralRows.map(r=>{
+    const sub=referralSubs[r.referred_id];
+    const plan=sub?(sub.plan_id==="yearly"?"Yearly":"Monthly"):"—";
+    const pill=r.status==="rewarded"?"green":"amber";
+    return '<div class="item"><h4>'+esc(referralUserLabel(r.referrer_id))+' → '+esc(referralUserLabel(r.referred_id))+' <span class="pill '+pill+'">'+esc(r.status)+'</span></h4>'+
+      '<p class="mut">Code: '+esc(r.code||"")+' · Plan: '+esc(plan)+' · Reward: '+esc(fmtRs((r.reward_amount_paise||0)/100))+' · '+esc(fmtDate(r.created_at))+'</p>'+
+      (r.status==="pending"?'<div class="actions"><button data-reward="'+esc(r.id)+'">Mark rewarded</button></div>':"")+'</div>';
+  }).join("")||'<p class="mut">No referrals yet.</p>';
+  $("withdrawalList").innerHTML=withdrawalRows.map(w=>{
+    const pill=w.status==="paid"?"green":(w.status==="rejected"?"red":"amber");
+    return '<div class="item"><h4>'+esc(fmtRs(Math.abs(w.amount_paise||0)/100))+' <span class="pill '+pill+'">'+esc(w.status)+'</span></h4>'+
+      '<p class="mut">'+esc(referralUserLabel(w.user_id))+' · UPI: '+esc(w.upi_id||"—")+' · '+esc(fmtDate(w.created_at))+'</p>'+
+      (w.status==="requested"?'<div class="actions"><button data-withdraw-pay="'+esc(w.id)+'">Mark Paid</button><button class="secondary" data-withdraw-reject="'+esc(w.id)+'">Reject</button></div>':"")+'</div>';
+  }).join("")||'<p class="mut">No withdrawal requests yet.</p>';
+}
+$("referralList").addEventListener("click",event=>{const button=event.target.closest("button[data-reward]");if(button)markReferralRewarded(button.dataset.reward);});
+$("withdrawalList").addEventListener("click",event=>{
+  const pay=event.target.closest("button[data-withdraw-pay]");
+  if(pay)return markWithdrawalPaid(pay.dataset.withdrawPay);
+  const rej=event.target.closest("button[data-withdraw-reject]");
+  if(rej)return markWithdrawalRejected(rej.dataset.withdrawReject);
+});
+async function markWithdrawalPaid(id){
+  const {error}=await supabaseClient.from("wallet_transactions").update({status:"paid"}).eq("id",id).eq("status","requested");
+  if(error)return showMsg($("referralMsg"),"Mark Paid failed: "+errorText(error),"err");
+  await loadReferrals();showMsg($("referralMsg"),"Withdrawal marked Paid.","ok");
+}
+async function markWithdrawalRejected(id){
+  const {error}=await supabaseClient.from("wallet_transactions").update({status:"rejected"}).eq("id",id).eq("status","requested");
+  if(error)return showMsg($("referralMsg"),"Reject failed: "+errorText(error),"err");
+  await loadReferrals();showMsg($("referralMsg"),"Withdrawal rejected — the amount is back in the user's balance.","ok");
+}
+// Covers first purchases confirmed manually in the Payments tab (the site
+// rewards automatically only when its own checkout flow activates the plan).
+async function markReferralRewarded(id){
+  const ref=referralRows.find(r=>r.id===id);
+  if(!ref)return showMsg($("referralMsg"),"Referral not found.","err");
+  const sub=referralSubs[ref.referred_id];
+  if(!sub)return showMsg($("referralMsg"),"No paid plan found for this user yet — reward only after their first purchase.","err");
+  const reward=sub.plan_id==="yearly"?10000:5000;
+  const {error:updErr}=await supabaseClient.from("referrals").update({status:"rewarded",reward_amount_paise:reward}).eq("id",id).eq("status","pending");
+  if(updErr)return showMsg($("referralMsg"),"Reward failed: "+errorText(updErr),"err");
+  const {error:insErr}=await supabaseClient.from("wallet_transactions").insert({user_id:ref.referrer_id,referral_id:id,kind:"referral_credit",amount_paise:reward,status:"completed"});
+  if(insErr)return showMsg($("referralMsg"),"Reward saved but wallet credit failed: "+errorText(insErr),"err");
+  await loadReferrals();showMsg($("referralMsg"),"Rewarded "+fmtRs(reward/100)+" to "+referralUserLabel(ref.referrer_id)+".","ok");
 }
 
 function stopLive(){if(liveChannel){supabaseClient.removeChannel(liveChannel);liveChannel=null;}}
