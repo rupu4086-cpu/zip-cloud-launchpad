@@ -196,7 +196,7 @@ describe("Spin & Win wheel (learner site)", () => {
       expect(insertCalls).toHaveLength(1);
       const saved = insertCalls[0] as { user_id: unknown; discount: number; code: string };
       expect(saved.user_id).toBe("test");
-      expect([5, 10, 20, 30, 40, 50]).toContain(saved.discount);
+      expect([40, 50]).toContain(saved.discount);
       expect(saved.code).toBe("SPIN" + saved.discount);
       expect(run("spinPct")).toBe(saved.discount);
       expect(location.hash).not.toBe("#/plans");
@@ -335,13 +335,21 @@ describe("Home parity with the preview", () => {
 
   it("shows the preview's exact spin card copy", () => {
     const html = run("homeCategories=null; renderHome()") as string;
-    expect(html).toContain("Spin &amp; Win — 5% to 50% off");
+    expect(html).toContain("Spin &amp; Win — 40% to 50% off");
     expect(html).toContain(
-      "Spin once to receive a discount between 5% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.",
+      "Spin once to receive a discount between 40% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.",
     );
     expect(html).toContain(
-      "One spin per user · 5%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans",
+      "One spin per user · 40%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans",
     );
+  });
+
+  it("shows the offer countdown on the wheel card", () => {
+    run("homeCategories=null; location.hash='#/home'; render()");
+    const el = document.getElementById("offerCountdown");
+    expect(el).not.toBeNull();
+    // Offer ends 13 Nov 2026 23:59 IST; while it is live the countdown shows days + hours + mins + secs.
+    expect(el?.textContent).toMatch(/Offer ends in \d+d \d+h \d+m \d+s/);
   });
 
   it("renders categories as cards in a 2-column grid with descriptions and counts", () => {

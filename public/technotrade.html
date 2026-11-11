@@ -146,6 +146,7 @@
       .spin-code{display:inline-block;margin-top:6px;background:var(--gold-soft);color:var(--gold-dark);border-radius:8px;padding:6px 12px;font-size:14px;font-weight:800;letter-spacing:.06em}
       .spin-note{margin-top:6px;font-size:12px;font-weight:600;color:var(--muted)}
       .wheel-foot{margin:12px 0 0;font-size:11.5px;font-weight:600;color:var(--muted);line-height:1.5;overflow-wrap:break-word}
+      .offer-countdown{margin:10px 0 0;font-size:13px;font-weight:800;color:#B97A12}
       .cat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:0 16px 12px}
       .cat-card{min-width:0;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:4px}
       .cat-card.on{border-color:var(--gold);background:var(--gold-soft)}
@@ -1012,11 +1013,31 @@
           '</div></div></div>';
       }
       // ---------- Spin & Win wheel (display only — the code is shown, checkout is unchanged) ----------
-      const WHEEL_VALUES = [5, 10, 20, 30, 40, 50];
-      // Weighted so 40% and 50% together land about 2 in 3 spins.
-      const WHEEL_WEIGHTS = [0.05, 0.08, 0.12, 0.08, 0.33, 0.34];
-      const WHEEL_COLORS = ["#123063", "#0E2A5C", "#5B6B82", "#0A1F44", "#E9A13B", "#F4BC5C"];
-      const WHEEL_TEXT = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "#2A1A00", "#2A1A00"];
+      // Only high discounts: 40% and 50% alternate around the wheel, equal odds.
+      const WHEEL_VALUES = [40, 50, 40, 50, 40, 50];
+      const WHEEL_WEIGHTS = [0.17, 0.17, 0.17, 0.17, 0.16, 0.16]; // 40% = 0.50, 50% = 0.50
+      const WHEEL_COLORS = ["#0A1F44", "#E9A13B", "#123063", "#F4BC5C", "#0E2A5C", "#E9A13B"];
+      const WHEEL_TEXT = ["#FFFFFF", "#2A1A00", "#FFFFFF", "#2A1A00", "#FFFFFF", "#2A1A00"];
+      // Offer countdown: the spin offer ends 13 Nov 2026, 11:59 PM IST.
+      // Display only — the wheel keeps working after the deadline; extend the
+      // date here to run the offer longer.
+      const OFFER_END_MS = Date.parse("2026-11-13T23:59:59+05:30");
+      function offerCountdownText(){
+        const left = OFFER_END_MS - Date.now();
+        if(left <= 0) return "Offer ended";
+        const s = Math.floor(left / 1000);
+        const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600),
+              m = Math.floor(s % 3600 / 60), sec = s % 60;
+        return "Offer ends in " + d + "d " + h + "h " + m + "m " + sec + "s";
+      }
+      let offerCountdownBound = false;
+      function bindOfferCountdown(){
+        if(offerCountdownBound) return;
+        offerCountdownBound = true;
+        const tick = () => { const el = $("offerCountdown"); if(el) el.textContent = offerCountdownText(); };
+        tick();
+        if(typeof window !== "undefined" && window.setInterval) window.setInterval(tick, 1000);
+      }
       let spinPct = 0;        // 0 = not spun yet
       let spinCode = "";
       let wheelAngle = 0;     // current wheel rotation, degrees
@@ -1096,13 +1117,16 @@
         setTimeout(() => { if(currentRoute().name === "home") go("plans"); }, 1400);
         return true;
       }
-      function pickWheelValue(){
+      // Pick a segment index (weighted); the value is that segment's discount.
+      // Index-based so the wheel can land on ANY 40% or 50% segment, not just
+      // the first one — indexOf() would always stop on the same two segments.
+      function pickWheelIndex(){
         let r = Math.random(), acc = 0;
         for(let i = 0; i < WHEEL_VALUES.length; i++){
           acc += WHEEL_WEIGHTS[i];
-          if(r < acc) return WHEEL_VALUES[i];
+          if(r < acc) return i;
         }
-        return WHEEL_VALUES[WHEEL_VALUES.length - 1];
+        return WHEEL_VALUES.length - 1;
       }
       function spinPricePaise(plan){
         if(!spinPct) return plan.pricePaise;
@@ -1174,8 +1198,8 @@
       }
       function spinWheel(){
         if(wheelSpinning || spinToday) return;
-        const value = pickWheelValue();
-        const idx = WHEEL_VALUES.indexOf(value);
+        const idx = pickWheelIndex();
+        const value = WHEEL_VALUES[idx];
         // Segment idx is centred at drawn angle (idx*60 - 60) deg; the pointer sits at the top (-90 deg).
         // Rotation (mod 360) that puts that centre under the pointer:
         const targetMod = (((-30 - idx * 60) % 360) + 360) % 360;
@@ -1240,12 +1264,13 @@
         let html = appBar();
         html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
         html += '<div class="wheel-card">' +
-          '<h3>Spin &amp; Win — 5% to 50% off</h3>' +
-          '<p class="mut">Spin once to receive a discount between 5% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.</p>' +
+          '<h3>Spin &amp; Win — 40% to 50% off</h3>' +
+          '<p class="mut">Spin once to receive a discount between 40% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.</p>' +
+          '<p class="offer-countdown" id="offerCountdown">' + esc(offerCountdownText()) + '</p>' +
           '<div class="wheel-wrap"><div class="wheel-pointer"></div><div id="wheelSpin" class="wheel-spin"><canvas id="wheelCanvas" width="280" height="280"></canvas></div></div>' +
           '<button class="btn btn-gold" id="spinBtn">SPIN</button>' +
           '<div id="spinResult" class="spin-result"></div>' +
-          '<p class="wheel-foot">One spin per user · 5%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans</p>' +
+          '<p class="wheel-foot">One spin per user · 40%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans</p>' +
           '</div>';
         html += '<div class="sechd"><b>Categories</b><span>' + categoryCards().length + (categoryCards().length === 1 ? " category" : " categories") + '</span></div>';
         html += '<div class="cat-grid">' + categoryCards().map(c =>
@@ -1307,6 +1332,7 @@
         wireChips();
         wireCourseTaps();
         drawWheel();
+        bindOfferCountdown();
         const wrap = $("wheelSpin");
         if(wrap){ wrap.style.transition = "none"; wrap.style.transform = "rotate(" + wheelAngle + "deg)"; }
         const btn = $("spinBtn");
