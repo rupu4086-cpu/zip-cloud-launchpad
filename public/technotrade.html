@@ -449,7 +449,9 @@
       }
       function courseNeedsYearly(id){ return id === "big-trader-strategies"; }
       const PLANS = [
-        {id:"monthly", name:"Monthly", pricePaise:100000, price:"₹1,000", per:"/month", durationDays:30,
+        // TEMP TEST PRICE: monthly is ₹2 only so Rupu can test a real ₹2 payment.
+        // REVERT after the test: pricePaise:100000, price:"₹1,000".
+        {id:"monthly", name:"Monthly", pricePaise:200, price:"₹2", per:"/month", durationDays:30,
          tagline:"All trading categories, 1 month",
          features:["7 courses — all except Big Trader Strategies","All course videos, full access for 1 month","Course completion certificate"],
          excluded:["Big Trader Strategies is only in Yearly"]},

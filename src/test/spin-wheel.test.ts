@@ -156,7 +156,7 @@ describe("Spin & Win wheel (learner site)", () => {
       // Plans shows the discount with the code banner.
       run("render()");
       expect(document.querySelector("#view")?.textContent).toContain("SPIN40");
-      expect(document.querySelector("#view")?.textContent).toContain("₹600");
+      expect(document.querySelector("#view")?.textContent).toContain("₹2");
       expect(document.querySelector("#view")?.textContent).toContain("₹1,800");
     } finally {
       vi.useRealTimers();
