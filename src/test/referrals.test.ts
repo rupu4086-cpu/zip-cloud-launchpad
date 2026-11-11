@@ -98,7 +98,7 @@ function makeSiteClient(db: any) {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("Referrals & wallet — logo served from R2", () => {
-  const R2_LOGO = "https://pub-45ad88d7030b46f6812bfe51f9f5f143.r2.dev/technotrade-logo.png";
+  const R2_LOGO = "https://drive.google.com/thumbnail?id=1Ls9hChLg7Cxry-v9ClJGWLjJ-rNu8Cvz&sz=w1000";
   it("all logo references point at the R2 public URL", () => {
     expect(siteHtml).toContain(R2_LOGO);
     expect(siteHtml).not.toContain("/technotrade-logo.png?v=1");
