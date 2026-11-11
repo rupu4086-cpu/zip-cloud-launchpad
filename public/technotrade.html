@@ -356,6 +356,7 @@
       .wallet-balance{grid-template-columns:auto minmax(0,1fr) auto}
       .wallet-balance .wallet-ic{width:52px;height:52px;border:1.5px solid var(--gold);border-radius:50%;display:grid;place-items:center;font-size:26px}
       .wallet-balance .tx b.wallet-amount{display:block;font-size:28px;line-height:1.2;font-weight:800}
+      .profile-wrap .header .tx b.wallet-amount{font-size:20px}
       .list-card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:16px}
       .rowitem{display:grid;grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;gap:10px;width:100%;background:var(--card);color:var(--ink);border:0;border-bottom:1px solid var(--line);padding:14px 12px;text-align:left;cursor:pointer}
       .rowitem:last-child{border-bottom:0}
@@ -2205,10 +2206,16 @@
         const u = currentUser;
         const a = access();
         const planLabel = a.hasActiveSubscription ? (a.planId === "yearly" ? "Yearly" : "Monthly") : "Free";
+        // Header card shows the wallet balance instead of the name (Rupu,
+        // 2026-11-11): avatar + "Wallet Balance" + live amount + email.
+        // The amount is "…" until the wallet finishes loading, so a wrong
+        // ₹0.00 is never shown for a user who has a balance.
+        const balance = walletBalancePaise(walletTxns || []);
+        const balanceText = walletTxns === null ? "…" : (balance < 0 ? "-" : "") + fmtRs2(Math.abs(balance));
         let html = '<div class="profile-wrap">' +
           '<div class="card header">' +
           '<div class="avatar-lg">' + esc(initialsOf(u.displayName, u.email)) + '</div>' +
-          '<div class="tx"><b>' + esc(u.displayName || "Learner") + '</b><span>' + esc(u.email || "") + '</span></div>' +
+          '<div class="tx"><span>Wallet Balance</span><b class="wallet-amount">' + balanceText + '</b><span>' + esc(u.email || "") + '</span></div>' +
           (isAdmin ? '<span class="pill gold">Admin</span>' : "") +
           '</div>' +
           '<div class="sub-card"><div class="tx"><span>Subscription</span><b>' + esc(planLabel) + '</b>' +
@@ -2236,6 +2243,9 @@
         return html;
       }
       function bindProfile(){
+        // The header card shows the live wallet balance: fetch it when the
+        // Profile opens (loadWallet re-renders Profile when it lands).
+        if(walletTxns === null) loadWallet().catch(() => {});
         document.querySelectorAll("[data-profile]").forEach(el => {
           el.addEventListener("click", () => {
             if(el.dataset.profile === "admin"){
@@ -2249,7 +2259,18 @@
         if(so) so.addEventListener("click", async () => { await signOut(); });
       }
       function subHead(title, backRoute){
-        return '<div class="subhead"><button class="backbtn" onclick="go(\'' + backRoute + '\')">←</button><h2>' + esc(title) + '</h2></div>';
+        return '<div class="subhead"><button class="backbtn" data-back="' + esc(backRoute) + '">←</button><h2>' + esc(title) + '</h2></div>';
+      }
+      // One delegated handler for every sub-view back button. The buttons
+      // used to rely on inline onclick="go(...)" globals; the data-back
+      // attribute survives re-renders and is bound once here, so a back
+      // button can never be rendered without a working handler.
+      if(!window.__ttBackBound){
+        window.__ttBackBound = true;
+        document.addEventListener("click", (e) => {
+          const btn = e.target && e.target.closest ? e.target.closest("[data-back]") : null;
+          if(btn) go(btn.dataset.back || "profile");
+        });
       }
       function renderProgress(){
         const completed = store.completed();
@@ -2452,6 +2473,10 @@
           createdAtMs: t.created_at ? Date.parse(t.created_at) : 0};
       }
       let myReferralCode = null;
+      // True once the current user's referral-code load has settled
+      // (success or failure). Lets renderRefer tell "still loading" apart
+      // from "failed", and stops bindRefer re-triggering the load forever.
+      let myReferralCodeLoaded = false;
       let myReferrals = null;
       let myReferralsLoading = false;
       let walletTxns = null;
@@ -2468,6 +2493,12 @@
             const { error: insErr } = await supabaseClient.from("referral_codes").insert({user_id: uid, code});
             if(!insErr){ myReferralCode = code; return code; }
           }
+          // The row may already exist (created by an earlier visit, a
+          // concurrent tab, or a lost insert race) even though the first
+          // select missed it — re-read once before giving up, so a stored
+          // code is never lost to a transient read failure or a race.
+          const { data: again } = await supabaseClient.from("referral_codes").select("code").eq("user_id", uid).maybeSingle();
+          if(again && again.code){ myReferralCode = again.code; return myReferralCode; }
         }catch(e){ /* code generation failure is non-fatal: the view shows the empty state */ }
         return "";
       }
@@ -2520,7 +2551,14 @@
           myReferrals = (data || []).map(referralRow);
           const r = currentRoute();
           if(r.name === "refer") render();
-        }catch(e){ /* non-fatal: the empty state stays */ }
+        }catch(e){
+          // A failed load must not leave the list stuck on "Loading…":
+          // show the empty state instead (a retry happens on the next
+          // visit to this view).
+          myReferrals = [];
+          const r = currentRoute();
+          if(r.name === "refer") render();
+        }
         finally{ myReferralsLoading = false; }
       }
       function renderRefer(){
@@ -2529,9 +2567,11 @@
         const refs = myReferrals || [];
         const earned = refs.filter(r => r.status === "rewarded").reduce((s, r) => s + (r.rewardPaise || 0), 0);
         let html = subHead("Refer & Earn", "profile");
-        html += '<div class="card"><div class="prow"><b>Your referral code</b><b>' + esc(code || "…") + '</b></div>' +
+        html += '<div class="card"><div class="prow"><b>Your referral code</b><b>' + esc(code || (myReferralCodeLoaded ? "—" : "…")) + '</b></div>' +
           '<p class="mut">Share your link — when a friend signs up with it and buys their first plan, you earn ₹50 (Monthly) or ₹100 (Yearly).</p>' +
-          (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' : '<p class="mut">Generating your link\u2026</p>') +
+          (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' :
+            (myReferralCodeLoaded ? '<p class="mut">Couldn\'t generate your link — check your connection and try again.</p><div style="margin-top:10px"><button class="btn btn-white" id="retryRefCodeBtn">Retry</button></div>' :
+            '<p class="mut">Generating your link…</p>')) +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-gold" id="copyRefLinkBtn"' + (link ? "" : " disabled") + '>Copy referral link</button>' +
           '<button class="btn btn-white" id="copyRefCodeBtn"' + (code ? "" : " disabled") + '>Copy code</button></div>' +
           '</div>';
@@ -2548,8 +2588,31 @@
         return html;
       }
       function bindRefer(){
-        ensureReferralCode().then(() => { const r = currentRoute(); if(r.name === "refer") render(); }).catch(() => {});
+        // ROOT CAUSE (2026-11-11): this used to call ensureReferralCode()
+        // on EVERY render and its .then called render() AGAIN unconditionally.
+        // Once the code was cached the promise resolved synchronously, so
+        // renders recursed unboundedly (a microtask render loop) and starved
+        // the main thread: the page never painted the loaded link, the
+        // "Generating…"/"Loading…" frames stayed on screen forever, and
+        // taps — including the back arrow — never registered. Fixed by
+        // re-rendering only when the code actually CHANGED, and by marking
+        // the load settled so the view can show a failed state instead of
+        // a permanent spinner. `wasLoaded` covers the Retry case: after a
+        // failed load the retry resets the flag, and the settling .then
+        // must re-render even when the code is still "" — otherwise the
+        // view would sit on "Generating…" with the load already done.
+        const before = myReferralCode;
+        const wasLoaded = myReferralCodeLoaded;
+        ensureReferralCode().then(() => {
+          myReferralCodeLoaded = true;
+          if(myReferralCode !== before || !wasLoaded){ const r = currentRoute(); if(r.name === "refer") render(); }
+        }).catch(() => {
+          myReferralCodeLoaded = true;
+          const r = currentRoute(); if(r.name === "refer") render();
+        });
         if(myReferrals === null) loadMyReferrals().catch(() => {});
+        const retryBtn = $("retryRefCodeBtn");
+        if(retryBtn) retryBtn.addEventListener("click", () => { myReferralCodeLoaded = false; render(); });
         const copyLink = $("copyRefLinkBtn");
         if(copyLink) copyLink.addEventListener("click", () => { copyText(referralLink(myReferralCode || "")); });
         const copyCode = $("copyRefCodeBtn");
@@ -2582,8 +2645,16 @@
           if(!currentUser || currentUser.id !== uid) return;
           walletTxns = (data || []).map(walletRow);
           const r = currentRoute();
-          if(r.name === "wallet") render();
-        }catch(e){ /* non-fatal */ }
+          // The Profile header shows the wallet balance too, so re-render
+          // it as well when the balance lands.
+          if(r.name === "wallet" || r.name === "profile") render();
+        }catch(e){
+          // Same as loadMyReferrals: never leave a view stuck on
+          // "Loading…" — show the empty state instead.
+          walletTxns = [];
+          const r = currentRoute();
+          if(r.name === "wallet" || r.name === "profile") render();
+        }
         finally{ walletLoading = false; }
       }
       function renderWallet(){
@@ -2764,7 +2835,7 @@
         // Same for referral + wallet data, and for a referral code carried in
         // from a link (?ref=) or a just-finished sign-up: attribute it once
         // on a fresh sign-in, then clear it so it can never attach twice.
-        if(uid !== lastAuthUid){ myReferralCode = null; myReferrals = null; walletTxns = null; }
+        if(uid !== lastAuthUid){ myReferralCode = null; myReferralCodeLoaded = false; myReferrals = null; walletTxns = null; }
         lastAuthUid = uid;
         currentUser = user ? normalizeUser(user) : null;
         isAdmin = false;

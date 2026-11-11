@@ -17,6 +17,11 @@ function makeDb(): any {
     referral_codes: [] as Row[],
     referrals: [] as Row[],
     wallet_transactions: [] as Row[],
+    // Test-only instrumentation: __failSelect forces select/insert/then
+    // errors for the named tables; __selects counts select() calls per
+    // table (used to prove the Refer view stops re-loading its code).
+    __selects: {} as Record<string, number>,
+    __failSelect: null as Set<string> | null,
   };
 }
 
@@ -25,7 +30,11 @@ class Query {
   private patch: Row | null = null;
   private limitN: number | null = null;
   constructor(private db: Record<string, Row[]>, private table: string) {}
-  select() { return this; }
+  private shouldFail() { return !!(this.db as any).__failSelect?.has(this.table); }
+  select() {
+    (this.db as any).__selects[this.table] = (((this.db as any).__selects[this.table] ?? 0) + 1);
+    return this;
+  }
   eq(col: string, val: any) { this.filters.push([col, val]); return this; }
   order() { return this; }
   limit(n: number) { this.limitN = n; return this; }
@@ -36,11 +45,13 @@ class Query {
     return rows;
   }
   async maybeSingle() {
+    if (this.shouldFail()) return { data: null, error: { message: "denied" } };
     const rows = this.filtered();
     return { data: rows[0] ?? null, error: null };
   }
   async insert(row: Row) {
-    if (this.table === "referral_codes" && this.rows().some((r) => r.code === row.code)) {
+    if (this.shouldFail()) return { data: null, error: { message: "denied" } };
+    if (this.table === "referral_codes" && this.rows().some((r) => r.code === row.code || r.user_id === row.user_id)) {
       return { data: null, error: { message: "duplicate key" } };
     }
     if (this.table === "referrals" && this.rows().some((r) => r.referred_id === row.referred_id)) {
@@ -61,6 +72,9 @@ class Query {
   update(patch: Row) { this.patch = patch; return this; }
   then(resolve: any, reject: any) {
     try {
+      if (this.shouldFail()) {
+        return Promise.resolve({ data: null, error: { message: "denied" } }).then(resolve, reject);
+      }
       if (this.patch) {
         const matched = this.rows().filter((r) => this.filters.every(([c, v]) => r[c] === v));
         matched.forEach((r) => Object.assign(r, this.patch));
@@ -96,6 +110,7 @@ function makeSiteClient(db: any) {
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const flush = async () => { for (let i = 0; i < 5; i++) await tick(); };
 
 describe("Referrals & wallet — logo served from R2", () => {
   const R2_LOGO = "https://drive.google.com/thumbnail?id=1Ls9hChLg7Cxry-v9ClJGWLjJ-rNu8Cvz&sz=w1000";
@@ -124,9 +139,10 @@ describe("Referrals & wallet — learner website", () => {
     Object.assign(window, { supabase: { createClient: () => client } });
     if (!siteScript) throw new Error("Learner script missing");
     run = new Function(`${siteScript}\nreturn code => eval(code);`)();
-    run("currentUser = {uid:'u1',id:'u1',displayName:'Learner',email:'learner@example.com'}; isAdmin = false; courses=[]; coursesLoaded=false; subscription=null; supportMessages=null; myReferralCode=null; myReferrals=null; walletTxns=null;");
+    run("currentUser = {uid:'u1',id:'u1',displayName:'Learner',email:'learner@example.com'}; isAdmin = false; courses=[]; coursesLoaded=false; subscription=null; supportMessages=null; myReferralCode=null; myReferralCodeLoaded=false; myReferrals=null; walletTxns=null;");
     localStorage.clear();
     sessionStorage.clear();
+    location.hash = "#/home";
   });
 
   it("generates 8-char uppercase referral codes", () => {
@@ -300,6 +316,97 @@ describe("Referrals & wallet — learner website", () => {
     const again = await run("ensureReferralCode()");
     expect(again).toBe(db.referral_codes[0].code);
     expect(db.referral_codes).toHaveLength(1);
+  });
+
+  it("Profile header shows the wallet balance instead of the name", () => {
+    run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:15000, status:'completed', upiId:'', createdAtMs:1000}];`);
+    const html = run("renderProfile()") as string;
+    expect(html).toContain("Wallet Balance");
+    expect(html).toContain("₹150.00");
+    expect(html).toContain("learner@example.com");
+    expect(html).not.toContain("Learner");
+    expect(html).toContain("Refer & Earn");
+    expect(html).toContain("Wallet");
+  });
+
+  it("Profile header shows a placeholder while the wallet is loading, never a wrong ₹0.00", () => {
+    // beforeEach leaves walletTxns null (not loaded yet).
+    const html = run("renderProfile()") as string;
+    expect(html).toContain("Wallet Balance");
+    expect(html).toContain("…");
+    expect(html).not.toContain("₹0.00");
+    expect(html).not.toContain("Learner");
+  });
+
+  it("Refer & Earn resolves the code from an existing row and enables Copy on first open (regression: stuck Generating…)", async () => {
+    // Mirrors the live case: the referral_codes row already exists.
+    db.referral_codes.push({ user_id: "u1", code: "QHL8LFM8", created_at: new Date().toISOString() });
+    location.hash = "#/refer";
+    run("render()");
+    await flush();
+    const html = document.getElementById("view")!.innerHTML;
+    expect(html).toContain("QHL8LFM8");
+    expect(html).toContain("https://technoacademy.online/technotrade.html?ref=QHL8LFM8");
+    expect(html).not.toContain("Generating your link");
+    expect(html).not.toContain("Loading referrals");
+    expect(html).toContain("No referrals yet");
+    expect((document.getElementById("copyRefLinkBtn") as HTMLButtonElement).disabled).toBe(false);
+    expect((document.getElementById("copyRefCodeBtn") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("re-rendering Refer & Earn does not re-trigger the code load (regression: infinite render loop)", async () => {
+    db.referral_codes.push({ user_id: "u1", code: "QHL8LFM8", created_at: new Date().toISOString() });
+    location.hash = "#/refer";
+    run("render()");
+    await flush();
+    // One select: the first load found the existing row.
+    expect(db.__selects["referral_codes"]).toBe(1);
+    run("render()");
+    run("render()");
+    run("render()");
+    await flush();
+    expect(db.__selects["referral_codes"]).toBe(1);
+    expect(document.getElementById("view")!.innerHTML).toContain("QHL8LFM8");
+  });
+
+  it("a failed referrals load shows the empty state, not a permanent Loading…", async () => {
+    db.__failSelect = new Set(["referrals"]);
+    location.hash = "#/refer";
+    run("render()");
+    await flush();
+    const html = document.getElementById("view")!.innerHTML;
+    expect(html).not.toContain("Loading referrals");
+    expect(html).toContain("No referrals yet");
+  });
+
+  it("a failed code load shows a retry instead of hanging on Generating…", async () => {
+    db.__failSelect = new Set(["referral_codes"]);
+    location.hash = "#/refer";
+    run("render()");
+    await flush();
+    const html = document.getElementById("view")!.innerHTML;
+    expect(html).toContain("Couldn't generate your link");
+    expect(html).not.toContain("Generating your link");
+    expect(document.getElementById("retryRefCodeBtn")).not.toBeNull();
+    // Retrying re-attempts the load without hanging.
+    (document.getElementById("retryRefCodeBtn") as HTMLButtonElement).click();
+    await flush();
+    expect(document.getElementById("view")!.innerHTML).toContain("Couldn't generate your link");
+  });
+
+  it("back arrow returns to Profile from Refer & Earn and Wallet", async () => {
+    location.hash = "#/refer";
+    run("render()");
+    await flush();
+    (document.querySelector(".backbtn") as HTMLButtonElement).click();
+    expect(location.hash).toBe("#/profile");
+    run("render()");
+    expect(document.getElementById("view")!.innerHTML).toContain("Wallet Balance");
+    location.hash = "#/wallet";
+    run("render()");
+    await flush();
+    (document.querySelector(".backbtn") as HTMLButtonElement).click();
+    expect(location.hash).toBe("#/profile");
   });
 
   it("Wallet shows the balance, the form and the transaction list", () => {
