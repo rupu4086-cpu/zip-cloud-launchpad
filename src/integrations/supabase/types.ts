@@ -77,6 +77,33 @@ export type Database = {
         }
         Relationships: []
       }
+      home_categories: {
+        Row: {
+          course_ids: string[]
+          created_at: string
+          description: string | null
+          id: string
+          label: string
+          sort_order: number
+        }
+        Insert: {
+          course_ids?: string[]
+          created_at?: string
+          description?: string | null
+          id?: string
+          label: string
+          sort_order?: number
+        }
+        Update: {
+          course_ids?: string[]
+          created_at?: string
+          description?: string | null
+          id?: string
+          label?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       lessons: {
         Row: {
           course_id: string
@@ -118,16 +145,19 @@ export type Database = {
       payment_config: {
         Row: {
           enabled: boolean
+          key_id: string | null
           monthly_link: string
           yearly_link: string
         }
         Insert: {
           enabled?: boolean
+          key_id?: string | null
           monthly_link?: string
           yearly_link?: string
         }
         Update: {
           enabled?: boolean
+          key_id?: string | null
           monthly_link?: string
           yearly_link?: string
         }
@@ -167,6 +197,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      spin_plays: {
+        Row: {
+          code: string
+          discount: number
+          id: string
+          spun_at: string
+          user_id: string
+        }
+        Insert: {
+          code: string
+          discount: number
+          id?: string
+          spun_at?: string
+          user_id: string
+        }
+        Update: {
+          code?: string
+          discount?: number
+          id?: string
+          spun_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       subscriptions: {
         Row: {
