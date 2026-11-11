@@ -932,7 +932,7 @@
         const u = currentUser;
         const greet = "Hello" + (firstNameOf(u) ? ", " + esc(firstNameOf(u)) : "");
         return '<div class="appbar">' +
-          '<div class="logo" style="padding:0;border-radius:50%;overflow:hidden"><img src="/technotrade-logo.png?v=1" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
+          '<div class="logo" style="padding:0;border-radius:50%;overflow:hidden"><img src="https://pub-45ad88d7030b46f6812bfe51f9f5f143.r2.dev/technotrade-logo.png" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
           '<div class="brand"><b>TechnoTrade Academy</b><span>' + esc(greet.toUpperCase()) + '</span></div>' +
           '<button class="iconbtn" onclick="go(\'notifications\')" aria-label="Notifications">🔔</button>' +
           '<button class="avatar" onclick="go(\'profile\')" aria-label="Profile">' + esc(initialsOf(u && u.displayName, u && u.email)) + '</button>' +
@@ -979,7 +979,7 @@
       // ---------- Login ----------
       function renderLogin(){
         return '<div class="auth">' +
-          '<div class="logo-big" style="padding:0;border-radius:50%;overflow:hidden"><img src="/technotrade-logo.png?v=1" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
+          '<div class="logo-big" style="padding:0;border-radius:50%;overflow:hidden"><img src="https://pub-45ad88d7030b46f6812bfe51f9f5f143.r2.dev/technotrade-logo.png" alt="TechnoTrade Academy" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div>' +
           '<h1>TechnoTrade Academy</h1>' +
           '<p class="sub">Learn trading. Trade smart.</p>' +
           '<div id="authMsg"></div>' +
@@ -987,11 +987,11 @@
             '<button class="btn btn-navy" id="googleBtn">Continue with Google</button>' +
             '<div class="divider" id="emailDivider">or sign in with email</div>' +
             '<div id="signupNameBox" class="hide"><label for="authName">Your name</label><input id="authName" type="text" placeholder="Rupu Buragohain" autocomplete="name"></div>' +
-            '<div id="signupRefBox" class="hide"><label for="authRefCode">Referral code (optional)</label><input id="authRefCode" type="text" placeholder="e.g. ABC12345" autocomplete="off" style="text-transform:uppercase"></div>' +
             '<label for="authEmail">Email</label>' +
             '<input id="authEmail" type="email" placeholder="you@gmail.com" autocomplete="email">' +
             '<label for="authPassword">Password</label>' +
             '<input id="authPassword" type="password" placeholder="Your password" autocomplete="current-password">' +
+            '<div id="signupRefBox" class="hide"><label for="authRefCode">Referral code (optional)</label><input id="authRefCode" type="text" placeholder="e.g. ABC12345" autocomplete="off" style="text-transform:uppercase"></div>' +
             '<div style="height:12px"></div>' +
             '<button class="btn btn-gold" id="emailBtn">Sign in</button>' +
             '<div style="height:10px"></div>' +

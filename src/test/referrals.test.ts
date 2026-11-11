@@ -97,13 +97,17 @@ function makeSiteClient(db: any) {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe("Referrals & wallet — logo cache-bust", () => {
-  it("all logo references carry the cache-busting query", () => {
-    expect(siteHtml).toContain('/technotrade-logo.png?v=1');
+describe("Referrals & wallet — logo served from R2", () => {
+  const R2_LOGO = "https://pub-45ad88d7030b46f6812bfe51f9f5f143.r2.dev/technotrade-logo.png";
+  it("all logo references point at the R2 public URL", () => {
+    expect(siteHtml).toContain(R2_LOGO);
+    expect(siteHtml).not.toContain("/technotrade-logo.png?v=1");
     expect(siteHtml).not.toContain('src="/technotrade-logo.png"');
-    expect(adminHtml).toContain('/technotrade-logo.png?v=1');
+    expect(adminHtml).toContain(R2_LOGO);
+    expect(adminHtml).not.toContain("/technotrade-logo.png?v=1");
     expect(adminHtml).not.toContain('src="/technotrade-logo.png"');
-    expect(resetHtml).toContain('/technotrade-logo.png?v=1');
+    expect(resetHtml).toContain(R2_LOGO);
+    expect(resetHtml).not.toContain("/technotrade-logo.png?v=1");
     expect(resetHtml).not.toContain('src="/technotrade-logo.png"');
   });
 });
@@ -184,6 +188,10 @@ describe("Referrals & wallet — learner website", () => {
     expect(html).toContain('id="authRefCode"');
     expect(html).toContain('id="signupRefBox"');
     expect(html).toContain("Referral code (optional)");
+    // Referral code field is LAST in the signup form: Name -> Email -> Password -> Referral code -> Create account.
+    const refIdx = html.indexOf('id="signupRefBox"');
+    expect(refIdx).toBeGreaterThan(html.indexOf('id="authPassword"'));
+    expect(refIdx).toBeLessThan(html.indexOf('id="emailBtn"'));
     expect(siteScript).toContain("prefillReferralCode");
     expect(siteScript).toContain('sessionStorage.getItem("tt_ref_code")');
   });
