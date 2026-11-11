@@ -20,8 +20,11 @@
   SUPABASE CONFIG — the publishable key below is a public client identifier
   (safe to ship in browser code). NEVER paste any secret in this file: no
   Razorpay Key Secret, no webhook secret, no service-role key, no passwords.
-  Payment links are public checkout URLs read from the payment_config
-  table — never keys.
+  Payments use Razorpay Checkout (checkout.js) with the public Key ID read
+  from the payment_config table (key_id) — the Key ID is public by design.
+  Payment links (monthly_link / yearly_link) stay as a fallback when no
+  Key ID is set. The Key Secret lives ONLY in the razorpay-webhook Edge
+  Function secret — never in this file, the panel, or the repo.
   Deploy: Lovable hosting (this project). Google sign-in is managed by
   Lovable in Supabase Auth; keep this site's URL in the Supabase Site URL
   and Redirect URLs.
@@ -32,6 +35,7 @@
       rel="stylesheet"
     />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
       :root{
         --navy:#0A1F44; --navy-2:#0E2A5C; --navy-3:#123063; --navy-dark:#06182B;
@@ -614,7 +618,7 @@
       let courses = [];          // merged Supabase rows (app order)
       let lessonStats = {};      // courseId -> {count, totalDurationSec}
       let subscription = null;   // active sub doc or null
-      let paymentConfig = {monthlyLink:"", yearlyLink:"", enabled:false};
+      let paymentConfig = {monthlyLink:"", yearlyLink:"", enabled:false, keyId:""};
       let dataError = null; // honest error text when listeners fail
       let plansNotice = null;    // one-line note on Plans after a locked tap
       let selectedPlan = "yearly";
@@ -722,8 +726,8 @@
       async function loadPaymentConfig(){
         const { data, error } = await supabaseClient.from("payment_config").select("*").limit(1).maybeSingle();
         if(error) throw error;
-        paymentConfig = data ? {monthlyLink: data.monthly_link || "", yearlyLink: data.yearly_link || "", enabled: !!data.enabled}
-                             : {monthlyLink:"", yearlyLink:"", enabled:false};
+        paymentConfig = data ? {monthlyLink: data.monthly_link || "", yearlyLink: data.yearly_link || "", enabled: !!data.enabled, keyId: data.key_id || ""}
+                             : {monthlyLink:"", yearlyLink:"", enabled:false, keyId:""};
         render();
       }
       function activeChips(){
@@ -1632,7 +1636,7 @@
           '<div><span>🛡</span>Razorpay secure payment</div>' +
           '<div><span>💳</span>UPI · Card · NetBanking</div>' +
           '<div><span>✓</span>Instant access after payment</div></div>';
-        html += '<p class="disclaimer">Payment happens on Razorpay\'s secure page — your plan shows active as soon as the payment is confirmed.</p>';
+        html += '<p class="disclaimer">Payment happens in Razorpay\'s secure checkout — your plan shows active as soon as the payment is confirmed.</p>';
         html += '<p class="disclaimer">' + DISCLAIMER + '</p><div style="height:16px"></div>';
         return html;
       }
@@ -1845,9 +1849,93 @@
           '<div><span>🛡</span>Razorpay secure payment</div>' +
           '<div><span>💳</span>UPI · Card · NetBanking</div>' +
           '<div><span>✓</span>Instant access after payment</div></div>';
-        html += '<p class="disclaimer">Payment happens on Razorpay\'s secure page — your plan shows active as soon as the payment is confirmed.</p>';
+        html += '<p class="disclaimer">Payment happens in Razorpay\'s secure checkout — your plan shows active as soon as the payment is confirmed.</p>';
         html += '<p class="disclaimer">' + DISCLAIMER + '</p><div style="height:16px"></div>';
         return html;
+      }
+      // ---------- Razorpay Checkout (no payment links needed) ----------
+      // The public Key ID comes from payment_config.key_id (admin panel).
+      // The Key Secret is NEVER in this file — it lives only in the
+      // razorpay-webhook Edge Function secret, which verifies payments.
+      function openCheckout(planId){
+        const plan = planById(planId);
+        if(!plan) return false;
+        if(!paymentConfig.enabled || !paymentConfig.keyId){
+          plansNotice = "Payments aren't set up yet — the admin needs to add the Razorpay Key ID first.";
+          render();
+          return false;
+        }
+        if(typeof Razorpay === "undefined"){
+          plansNotice = "Razorpay Checkout could not load — check your connection and try again.";
+          render();
+          return false;
+        }
+        const amountPaise = spinPricePaise(plan);
+        const options = {
+          key: paymentConfig.keyId,
+          amount: amountPaise,
+          currency: "INR",
+          name: "TechnoTrade Academy",
+          description: plan.name + " plan" + (spinPct ? " (Code " + spinCode + " — " + spinPct + "% off)" : ""),
+          prefill: {name: (currentUser && currentUser.displayName) || "", email: (currentUser && currentUser.email) || ""},
+          notes: {plan_id: plan.id, user_id: (currentUser && currentUser.id) || ""},
+          theme: {color: "#0A1F44"},
+          modal: {ondismiss: function(){}},
+          handler: function(response){ onCheckoutSuccess(plan, amountPaise, response); }
+        };
+        try{
+          const rzp = new Razorpay(options);
+          rzp.open();
+        }catch(e){
+          plansNotice = "Could not open the payment checkout: " + authErrorText(e);
+          render();
+          return false;
+        }
+        return true;
+      }
+      // Asks the webhook function to verify the Checkout handler signature
+      // server-side (HMAC-SHA256 of order_id|payment_id with the Key Secret).
+      // Non-fatal: the payments row + checkMyPayment below stay the fallback,
+      // so a missing/unreachable function never blocks activation.
+      async function verifyCheckoutWithServer(response){
+        try{
+          const res = await fetch(SUPABASE_URL + "/functions/v1/razorpay-webhook/verify", {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON_KEY},
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id || "",
+              razorpay_payment_id: response.razorpay_payment_id || "",
+              razorpay_signature: response.razorpay_signature || ""
+            })
+          });
+          const out = await res.json().catch(() => ({}));
+          return !!(res.ok && out && out.ok);
+        }catch(e){ return false; }
+      }
+      async function onCheckoutSuccess(plan, amountPaise, response){
+        const payId = response && response.razorpay_payment_id;
+        if(!payId){
+          plansNotice = "Payment finished but no Payment ID came back. Contact support (" + SUPPORT_EMAIL + ").";
+          render();
+          return;
+        }
+        const { error } = await supabaseClient.from("payments").insert({
+          id: payId, user_id: (currentUser && currentUser.id) || null,
+          plan_id: plan.id, amount: amountPaise, status: "captured"
+        });
+        if(error){
+          plansNotice = "Payment received (ID " + payId + ") but could not be saved. Contact support (" + SUPPORT_EMAIL + ").";
+          render();
+          return;
+        }
+        plansNotice = "Payment received (ID " + payId + "). Activating your plan…";
+        render();
+        await verifyCheckoutWithServer(response);
+        try{ await checkMyPayment(); }catch(e){}
+        plansNotice = access().hasActiveSubscription
+          ? "Payment confirmed — your " + plan.name + " plan is now active. Happy learning!"
+          : "Payment received (ID " + payId + "). It will be confirmed shortly — if your plan is not active in a few minutes, contact support (" + SUPPORT_EMAIL + ").";
+        render();
       }
       function bindPlans(){
         document.querySelectorAll("[data-plan]").forEach(b => {
@@ -1862,8 +1950,12 @@
         });
         document.querySelectorAll("[data-buy]").forEach(b => {
           b.addEventListener("click", () => {
-            const link = b.dataset.buy === "yearly" ? paymentConfig.yearlyLink : paymentConfig.monthlyLink;
-            if(link) window.open(link, "_blank", "noopener");
+            const planId = b.dataset.buy;
+            if(paymentConfig.enabled && paymentConfig.keyId){ openCheckout(planId); return; }
+            const link = planId === "yearly" ? paymentConfig.yearlyLink : paymentConfig.monthlyLink;
+            if(link){ window.open(link, "_blank", "noopener"); return; }
+            plansNotice = "Payments aren't set up yet — the admin needs to add the Razorpay Key ID (or a payment link) first.";
+            render();
           });
         });
       }
@@ -1913,7 +2005,7 @@
           }
           const rec = mine[0];
           const plan = planById(rec.planId);
-          if(!plan || rec.amountPaise !== plan.pricePaise){
+          if(!plan || (rec.amountPaise !== plan.pricePaise && rec.amountPaise !== spinPricePaise(plan))){
             verifyMsg("Found a payment, but its plan or amount does not match. Contact support (" + SUPPORT_EMAIL + ").", "err");
             return;
           }
@@ -1947,7 +2039,7 @@
             verifyMsg("This payment is not confirmed yet (status: " + (rec.status || "unknown") + "). If you just paid, wait a minute and try again.", "warn");
             return;
           }
-          if(rec.amountPaise !== plan.pricePaise){
+          if(rec.amountPaise !== plan.pricePaise && rec.amountPaise !== spinPricePaise(plan)){
             verifyMsg("This payment's amount does not match the " + plan.name + " plan. Contact support (" + SUPPORT_EMAIL + ").", "err");
             return;
           }
