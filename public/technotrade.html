@@ -1013,11 +1013,13 @@
           '</div></div></div>';
       }
       // ---------- Spin & Win wheel (display only — the code is shown, checkout is unchanged) ----------
-      // Only high discounts: 40% and 50% alternate around the wheel, equal odds.
-      const WHEEL_VALUES = [40, 50, 40, 50, 40, 50];
-      const WHEEL_WEIGHTS = [0.17, 0.17, 0.17, 0.17, 0.16, 0.16]; // 40% = 0.50, 50% = 0.50
-      const WHEEL_COLORS = ["#0A1F44", "#E9A13B", "#123063", "#F4BC5C", "#0E2A5C", "#E9A13B"];
-      const WHEEL_TEXT = ["#FFFFFF", "#2A1A00", "#FFFFFF", "#2A1A00", "#FFFFFF", "#2A1A00"];
+      // The wheel SHOWS all six values (5% to 50%), but it only ever STOPS on
+      // 40% or 50% — the weights for 5/10/20/30 are 0, so pickWheelIndex can
+      // only return segment 4 (40%) or 5 (50%), 50/50.
+      const WHEEL_VALUES = [5, 10, 20, 30, 40, 50];
+      const WHEEL_WEIGHTS = [0, 0, 0, 0, 0.5, 0.5];
+      const WHEEL_COLORS = ["#123063", "#0E2A5C", "#5B6B82", "#0A1F44", "#E9A13B", "#F4BC5C"];
+      const WHEEL_TEXT = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF", "#2A1A00", "#2A1A00"];
       // Offer countdown: the spin offer ends 13 Nov 2026, 11:59 PM IST.
       // Display only — the wheel keeps working after the deadline; extend the
       // date here to run the offer longer.
@@ -1264,13 +1266,13 @@
         let html = appBar();
         html += '<div class="search"><span>🔍</span><input id="homeSearch" type="text" placeholder="Search courses — Options, Charts..." value="' + esc(homeQuery) + '"></div>';
         html += '<div class="wheel-card">' +
-          '<h3>Spin &amp; Win — 40% to 50% off</h3>' +
-          '<p class="mut">Spin once to receive a discount between 40% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.</p>' +
+          '<h3>Spin &amp; Win — 5% to 50% off</h3>' +
+          '<p class="mut">Spin once to receive a discount between 5% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.</p>' +
           '<p class="offer-countdown" id="offerCountdown">' + esc(offerCountdownText()) + '</p>' +
           '<div class="wheel-wrap"><div class="wheel-pointer"></div><div id="wheelSpin" class="wheel-spin"><canvas id="wheelCanvas" width="280" height="280"></canvas></div></div>' +
           '<button class="btn btn-gold" id="spinBtn">SPIN</button>' +
           '<div id="spinResult" class="spin-result"></div>' +
-          '<p class="wheel-foot">One spin per user · 40%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans</p>' +
+          '<p class="wheel-foot">One spin per user · 5%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans</p>' +
           '</div>';
         html += '<div class="sechd"><b>Categories</b><span>' + categoryCards().length + (categoryCards().length === 1 ? " category" : " categories") + '</span></div>';
         html += '<div class="cat-grid">' + categoryCards().map(c =>

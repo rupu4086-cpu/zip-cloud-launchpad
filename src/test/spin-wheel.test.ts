@@ -335,13 +335,18 @@ describe("Home parity with the preview", () => {
 
   it("shows the preview's exact spin card copy", () => {
     const html = run("homeCategories=null; renderHome()") as string;
-    expect(html).toContain("Spin &amp; Win — 40% to 50% off");
+    expect(html).toContain("Spin &amp; Win — 5% to 50% off");
     expect(html).toContain(
-      "Spin once to receive a discount between 40% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.",
+      "Spin once to receive a discount between 5% and 50%. It applies to the plans below — the Monthly plan and the Per-Course 1-Year plan.",
     );
     expect(html).toContain(
-      "One spin per user · 40%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans",
+      "One spin per user · 5%–50% off · Valid on Monthly All-Access and Per-Course 1-Year plans",
     );
+  });
+
+  it("shows 5% to 50% on the wheel but only ever lands on 40 or 50", () => {
+    expect(run("WHEEL_VALUES")).toEqual([5, 10, 20, 30, 40, 50]);
+    expect(run("WHEEL_WEIGHTS")).toEqual([0, 0, 0, 0, 0.5, 0.5]);
   });
 
   it("shows the offer countdown on the wheel card", () => {
