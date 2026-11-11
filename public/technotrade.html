@@ -353,6 +353,9 @@
       .sub-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--navy);color:var(--card);padding:16px;margin-bottom:16px;border-radius:14px}
       .sub-card .tx span{color:var(--line)}
       .sub-card .btn{width:auto;padding:12px;font-size:13px}
+      .wallet-balance{grid-template-columns:auto minmax(0,1fr) auto}
+      .wallet-balance .wallet-ic{width:52px;height:52px;border:1.5px solid var(--gold);border-radius:50%;display:grid;place-items:center;font-size:26px}
+      .wallet-balance .tx b.wallet-amount{display:block;font-size:28px;line-height:1.2;font-weight:800}
       .list-card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:16px}
       .rowitem{display:grid;grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;gap:10px;width:100%;background:var(--card);color:var(--ink);border:0;border-bottom:1px solid var(--line);padding:14px 12px;text-align:left;cursor:pointer}
       .rowitem:last-child{border-bottom:0}
@@ -369,6 +372,8 @@
         .appbar .brand b{white-space:normal;line-height:1.3;font-size:13px}
         .sub-card{grid-template-columns:minmax(0,1fr)}
         .sub-card .btn{width:100%}
+        .sub-card.wallet-balance{grid-template-columns:52px minmax(0,1fr)}
+        .sub-card.wallet-balance .btn{grid-column:1/-1;width:100%}
         .plan .top .amt{font-size:22px}
         .cta-bar{grid-template-columns:minmax(0,1fr)}
       }
@@ -474,6 +479,7 @@
       const $ = id => document.getElementById(id);
       const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
       function fmtRs(paise){ return "₹" + Math.round((paise || 0) / 100).toLocaleString("en-IN"); }
+      function fmtRs2(paise){ return "₹" + ((paise || 0) / 100).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
       function fmtDate(ts){
         try{
           const d = ts && ts.toDate ? ts.toDate() : (ts instanceof Date ? ts : new Date(ts));
@@ -2525,9 +2531,9 @@
         let html = subHead("Refer & Earn", "profile");
         html += '<div class="card"><div class="prow"><b>Your referral code</b><b>' + esc(code || "…") + '</b></div>' +
           '<p class="mut">Share your link — when a friend signs up with it and buys their first plan, you earn ₹50 (Monthly) or ₹100 (Yearly).</p>' +
-          (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-gold" id="copyRefLinkBtn">Copy referral link</button>' +
-          '<button class="btn btn-white" id="copyRefCodeBtn">Copy code</button></div>' : "") +
+          (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' : '<p class="mut">Generating your link\u2026</p>') +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn btn-gold" id="copyRefLinkBtn"' + (link ? "" : " disabled") + '>Copy referral link</button>' +
+          '<button class="btn btn-white" id="copyRefCodeBtn"' + (code ? "" : " disabled") + '>Copy code</button></div>' +
           '</div>';
         html += '<div class="card"><div class="prow"><b>Friends referred</b><b>' + refs.length + '</b></div>' +
           '<div class="prow"><b>Total earned</b><b>' + fmtRs(earned) + '</b></div></div>';
@@ -2553,7 +2559,7 @@
         if(!text) return;
         try{
           if(navigator.clipboard && navigator.clipboard.writeText){
-            navigator.clipboard.writeText(text).then(() => toast("Copied.")).catch(() => toast("Copy failed — long-press to copy."));
+            navigator.clipboard.writeText(text).then(() => toast("Copied!")).catch(() => toast("Copy failed — long-press to copy."));
             return;
           }
         }catch(e){}
@@ -2561,7 +2567,7 @@
           const ta = document.createElement("textarea");
           ta.value = text; document.body.appendChild(ta); ta.select();
           document.execCommand("copy"); document.body.removeChild(ta);
-          toast("Copied.");
+          toast("Copied!");
         }catch(e){ toast("Copy failed — long-press to copy."); }
       }
       async function loadWallet(){
@@ -2587,13 +2593,15 @@
         const pendingOut = txns.filter(t => t.kind === "withdrawal" && t.status === "requested")
           .reduce((s, t) => s + Math.abs(t.amountPaise || 0), 0);
         let html = subHead("Wallet", "profile");
-        html += '<div class="card"><div class="prow"><b>Available balance</b><b>' + (balance < 0 ? "-" : "") + fmtRs(Math.abs(balance)) + '</b></div>' +
-          '<p class="mut">Total earned from referrals: ' + fmtRs(earned) +
-          (pendingOut > 0 ? ' · ' + fmtRs(pendingOut) + ' withdrawal pending' : "") + '</p></div>';
-        html += '<div class="card"><b>Withdraw via UPI</b>' +
-          '<p class="mut">Minimum withdrawal ₹100. The admin pays from their UPI app and marks your request Paid.</p>' +
+        html += '<div class="sub-card wallet-balance"><div class="wallet-ic">👛</div>' +
+          '<div class="tx"><span>Wallet Balance</span><b class="wallet-amount">' + (balance < 0 ? "-" : "") + fmtRs2(Math.abs(balance)) + '</b>' +
+          '<span>Total earned from referrals: ' + fmtRs(earned) +
+          (pendingOut > 0 ? ' · ' + fmtRs(pendingOut) + ' withdrawal pending' : "") + '</span></div>' +
+          '<button class="btn btn-gold" id="walletWithdrawBtn">Withdraw ↗</button></div>';
+        html += '<div class="card" id="withdrawFormCard"><b>Withdraw via UPI</b>' +
+          '<p class="mut">Withdraw any amount. The admin pays from their UPI app and marks your request Paid.</p>' +
           '<label for="withdrawUpi">UPI ID</label><input id="withdrawUpi" type="text" placeholder="name@okhdfcbank" autocomplete="off">' +
-          '<label for="withdrawAmount">Amount (₹)</label><input id="withdrawAmount" type="number" min="100" placeholder="100">' +
+          '<label for="withdrawAmount">Amount (₹)</label><input id="withdrawAmount" type="number" min="1" placeholder="Enter amount">' +
           '<div id="withdrawMsg"></div>' +
           '<div style="height:12px"></div>' +
           '<button class="btn btn-gold" id="withdrawBtn">Request withdrawal</button></div>';
@@ -2604,15 +2612,25 @@
         } else {
           html += txns.map(t => {
             const label = t.kind === "referral_credit" ? "Referral reward" : "UPI withdrawal";
+            const statusLabel = t.kind === "referral_credit" ? "Earned" :
+              t.status === "requested" ? "Pending" : t.status === "paid" ? "Complete" :
+              t.status === "rejected" ? "Rejected" : t.status;
             const sign = t.amountPaise >= 0 ? "+" : "-";
             return '<div class="card"><div class="prow"><b>' + esc(label) + '</b><b>' + sign + fmtRs(Math.abs(t.amountPaise)) + '</b></div>' +
-              '<p class="mut">Status: ' + esc(t.status) + (t.upiId ? ' · UPI: ' + esc(t.upiId) : "") + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
+              '<p class="mut">Status: ' + esc(statusLabel) + (t.upiId ? ' · UPI: ' + esc(t.upiId) : "") + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
           }).join("");
         }
         return html;
       }
       function bindWallet(){
         if(walletTxns === null) loadWallet().catch(() => {});
+        const wBtn = $("walletWithdrawBtn");
+        if(wBtn) wBtn.addEventListener("click", () => {
+          const form = $("withdrawFormCard");
+          if(form && form.scrollIntoView) form.scrollIntoView({behavior: "smooth", block: "start"});
+          const upi = $("withdrawUpi");
+          if(upi) upi.focus({preventScroll: true});
+        });
         const btn = $("withdrawBtn");
         if(btn) btn.addEventListener("click", () => { requestWithdrawal().catch(() => {}); });
       }
@@ -2623,8 +2641,7 @@
         const upiId = upiEl ? upiEl.value.trim() : "";
         const amountRs = amtEl ? Math.floor(Number(amtEl.value)) : NaN;
         if(!isValidUpiId(upiId)) return showMsg("Enter a valid UPI ID (like name@okhdfcbank).", "err");
-        if(!amountRs || isNaN(amountRs)) return showMsg("Enter an amount in ₹.", "err");
-        if(amountRs < 100) return showMsg("Minimum withdrawal is ₹100.", "err");
+        if(isNaN(amountRs) || amountRs <= 0) return showMsg("Enter an amount more than ₹0.", "err");
         const amountPaise = amountRs * 100;
         const balance = walletBalancePaise(walletTxns || []);
         if(amountPaise > balance) return showMsg("Amount is more than your available balance (" + fmtRs(balance) + ").", "err");

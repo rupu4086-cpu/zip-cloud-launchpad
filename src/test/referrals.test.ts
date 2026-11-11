@@ -282,6 +282,16 @@ describe("Referrals & wallet — learner website", () => {
     expect(html).toContain("₹100");
   });
 
+  it("Refer & Earn always shows the copy buttons, disabled until the code loads", () => {
+    run("myReferralCode = null; myReferrals = [];");
+    const html = run("renderRefer()") as string;
+    expect(html).toContain('id="copyRefLinkBtn"');
+    expect(html).toContain('id="copyRefCodeBtn"');
+    expect(html).toContain("Generating your link");
+    expect(html).toContain("disabled");
+    expect(siteScript).toContain('toast("Copied!")');
+  });
+
   it("generates and saves a code lazily on first Refer open", async () => {
     expect(await run("ensureReferralCode()")).toMatch(/^[A-Z0-9]{8}$/);
     expect(db.referral_codes).toHaveLength(1);
@@ -296,18 +306,39 @@ describe("Referrals & wallet — learner website", () => {
     run(`walletTxns = [
       {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', createdAtMs:1000},
       {id:'t2', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'requested', upiId:'learner@okhdfcbank', createdAtMs:2000},
+      {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'paid', upiId:'learner@okhdfcbank', createdAtMs:3000},
+      {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-2000, status:'rejected', upiId:'learner@okhdfcbank', createdAtMs:4000},
     ];`);
     const html = run("renderWallet()") as string;
-    expect(html).toContain("Available balance");
+    expect(html).toContain("Wallet Balance");
+    expect(html).toContain('sub-card wallet-balance');
+    expect(html).toContain('wallet-ic');
+    expect(html).toContain('id="walletWithdrawBtn"');
+    expect(html).toContain("Withdraw ↗");
+    expect(html).toContain("-₹100.00");
     expect(html).toContain("-₹100");
     expect(html).toContain("learner@okhdfcbank");
     expect(html).toContain('id="withdrawUpi"');
     expect(html).toContain('id="withdrawAmount"');
     expect(html).toContain('id="withdrawBtn"');
-    expect(html).toContain("Minimum withdrawal ₹100");
+    expect(html).not.toContain("Minimum withdrawal");
+    expect(html).toContain("Status: Earned");
+    expect(html).toContain("Status: Pending");
+    expect(html).toContain("Status: Complete");
+    expect(html).toContain("Status: Rejected");
   });
 
-  it("withdrawal validation: bad UPI, below minimum, above balance", async () => {
+  it("Wallet Withdraw button jumps to the form and focuses the UPI field", () => {
+    run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', createdAtMs:1000}];`);
+    document.body.innerHTML = run("renderWallet()") as string;
+    run("bindWallet()");
+    (document.getElementById("walletWithdrawBtn") as HTMLButtonElement).click();
+    expect(document.activeElement?.id).toBe("withdrawUpi");
+    expect(run("fmtRs2(0)")).toBe("₹0.00");
+    expect(run("fmtRs2(15000)")).toBe("₹150.00");
+  });
+
+  it("withdrawal validation: bad UPI, zero amount, above balance", async () => {
     run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:15000, status:'completed', upiId:'', createdAtMs:1000}];`);
     document.body.innerHTML = run("renderWallet()") as string;
     run("bindWallet()");
@@ -318,9 +349,9 @@ describe("Referrals & wallet — learner website", () => {
     setForm("not-an-upi", "150");
     await run("requestWithdrawal()");
     expect(document.getElementById("withdrawMsg")?.textContent).toContain("valid UPI ID");
-    setForm("learner@okhdfcbank", "50");
+    setForm("learner@okhdfcbank", "0");
     await run("requestWithdrawal()");
-    expect(document.getElementById("withdrawMsg")?.textContent).toContain("Minimum withdrawal is ₹100");
+    expect(document.getElementById("withdrawMsg")?.textContent).toContain("more than ₹0");
     setForm("learner@okhdfcbank", "200");
     await run("requestWithdrawal()");
     expect(document.getElementById("withdrawMsg")?.textContent).toContain("more than your available balance");
@@ -335,16 +366,16 @@ describe("Referrals & wallet — learner website", () => {
     document.body.innerHTML = run("renderWallet()") as string;
     run("bindWallet()");
     (document.getElementById("withdrawUpi") as HTMLInputElement).value = "learner@okhdfcbank";
-    (document.getElementById("withdrawAmount") as HTMLInputElement).value = "100";
+    (document.getElementById("withdrawAmount") as HTMLInputElement).value = "50";
     await run("requestWithdrawal()");
     await tick();
     expect(db.wallet_transactions).toHaveLength(2);
     expect(db.wallet_transactions[1]).toMatchObject({
-      user_id: "u1", kind: "withdrawal", amount_paise: -10000,
+      user_id: "u1", kind: "withdrawal", amount_paise: -5000,
       status: "requested", upi_id: "learner@okhdfcbank",
     });
-    // The requested amount is now reserved: available balance drops to ₹50.
-    expect(run("walletBalancePaise(walletTxns)")).toBe(5000);
+    // The requested amount is now reserved: available balance drops to ₹100.
+    expect(run("walletBalancePaise(walletTxns)")).toBe(10000);
   });
 });
 
@@ -361,6 +392,8 @@ describe("Referrals & wallet — admin panel", () => {
     expect(adminScript).toContain("markWithdrawalRejected");
     expect(adminScript).toContain("markReferralRewarded");
     expect(adminScript).toContain("reloadAll()");
+    expect(adminScript).toContain('data-withdraw-pay');
+    expect(adminScript).toContain('data-withdraw-reject');
   });
 
   it("admin actions only touch requested rows", () => {
