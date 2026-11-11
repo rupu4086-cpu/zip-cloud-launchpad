@@ -2228,7 +2228,7 @@
           {icon:"⬇️", t:"Downloads", s:"Offline lesson videos", route:"downloads"},
           {icon:"🧾", t:"Payment history", s:"Your Razorpay payments", route:"payments"},
           {icon:"🔔", t:"Notifications", s:"Subscription updates", route:"notifications"},
-          {icon:"🎁", t:"Refer & Earn", s:"Invite friends, earn ₹50–₹100", route:"refer"},
+          {icon:"🎁", t:"Refer & Earn", s:"Invite friends, earn ₹150–₹500", route:"refer"},
           {icon:"👛", t:"Wallet", s:"Balance and UPI withdrawals", route:"wallet"},
           {icon:"❓", t:"Help & Support", s:"Chat with us", route:"help"},
           {icon:"⚙️", t:"Settings", s:"Notifications, video quality, version", route:"settings"}
@@ -2411,17 +2411,17 @@
       }
 
       // ---------- Referrals & wallet ----------
-      // Referral reward (Rupu, 2026-11-11): the referrer earns ₹50 when the
-      // referred user buys Monthly first, ₹100 when they buy Yearly first.
+      // Referral reward (Rupu, 2026-11-11): the referrer earns ₹150 when the
+      // referred user buys Monthly first, ₹500 when they buy Yearly first.
       // First purchase only, once per referred user. Payout is manual: the
-      // user requests a UPI withdrawal (min ₹100) and the admin pays from
+      // user requests a UPI withdrawal (no minimum) and the admin pays from
       // their own UPI app, then marks the request Paid in the admin panel.
       // Tables: referral_codes {user_id PK, code unique}, referrals {id,
       // code, referrer_id, referred_id unique, status pending|rewarded,
       // reward_amount_paise}, wallet_transactions {id, user_id, referral_id,
       // kind referral_credit|withdrawal, amount_paise, status
       // completed|requested|paid|rejected, upi_id}.
-      const REFERRAL_REWARD_PAISE = {monthly: 5000, yearly: 10000};
+      const REFERRAL_REWARD_PAISE = {monthly: 15000, yearly: 50000};
       const WITHDRAW_MIN_PAISE = 10000;
       const REFERRAL_SITE_URL = "https://technoacademy.online/technotrade.html";
       function referralRewardForPlan(planId){ return planId === "yearly" ? REFERRAL_REWARD_PAISE.yearly : REFERRAL_REWARD_PAISE.monthly; }
@@ -2568,7 +2568,7 @@
         const earned = refs.filter(r => r.status === "rewarded").reduce((s, r) => s + (r.rewardPaise || 0), 0);
         let html = subHead("Refer & Earn", "profile");
         html += '<div class="card"><div class="prow"><b>Your referral code</b><b>' + esc(code || (myReferralCodeLoaded ? "—" : "…")) + '</b></div>' +
-          '<p class="mut">Share your link — when a friend signs up with it and buys their first plan, you earn ₹50 (Monthly) or ₹100 (Yearly).</p>' +
+          '<p class="mut">Share your link — when a friend signs up with it and buys their first plan, you earn ₹150 (Monthly) or ₹500 (Yearly).</p>' +
           (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' :
             (myReferralCodeLoaded ? '<p class="mut">Couldn\'t generate your link — check your connection and try again.</p><div style="margin-top:10px"><button class="btn btn-white" id="retryRefCodeBtn">Retry</button></div>' :
             '<p class="mut">Generating your link…</p>')) +
@@ -2689,8 +2689,8 @@
         } else {
           html += txns.map(t => {
             if(t.kind === "referral_credit"){
-              // ₹50 = Monthly first purchase, ₹100 = Yearly first purchase.
-              const plan = t.amountPaise === 5000 ? "Monthly" : t.amountPaise === 10000 ? "Yearly" : "";
+              // ₹150 = Monthly first purchase, ₹500 = Yearly first purchase.
+              const plan = t.amountPaise === 15000 ? "Monthly" : t.amountPaise === 50000 ? "Yearly" : "";
               const ref = (myReferrals || []).find(r => r.id === t.referralId);
               const detail = "Referral reward" + (plan ? " · " + plan + " plan" : "") + (ref && ref.code ? " · Code: " + ref.code : "");
               return '<div class="card"><div class="prow"><b>Earned ' + fmtRs(t.amountPaise) + '</b><b>+' + fmtRs(t.amountPaise) + '</b></div>' +

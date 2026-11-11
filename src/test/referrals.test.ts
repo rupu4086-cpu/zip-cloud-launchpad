@@ -168,10 +168,10 @@ describe("Referrals & wallet — learner website", () => {
     );
   });
 
-  it("rewards ₹50 for Monthly and ₹100 for Yearly", () => {
-    expect(run("referralRewardForPlan('monthly')")).toBe(5000);
-    expect(run("referralRewardForPlan('yearly')")).toBe(10000);
-    expect(run("referralRewardForPlan('bogus')")).toBe(5000);
+  it("rewards ₹150 for Monthly and ₹500 for Yearly", () => {
+    expect(run("referralRewardForPlan('monthly')")).toBe(15000);
+    expect(run("referralRewardForPlan('yearly')")).toBe(50000);
+    expect(run("referralRewardForPlan('bogus')")).toBe(15000);
   });
 
   it("validates UPI IDs", () => {
@@ -249,33 +249,33 @@ describe("Referrals & wallet — learner website", () => {
     expect(db.referrals).toHaveLength(1);
   });
 
-  it("rewards the referrer once on first purchase — ₹50 Monthly, ₹100 Yearly", async () => {
+  it("rewards the referrer once on first purchase — ₹150 Monthly, ₹500 Yearly", async () => {
     db.referrals.push({
       id: "r1", code: "ABC12345", referrer_id: "ref1", referred_id: "u1",
       status: "pending", created_at: new Date().toISOString(),
     });
     await run("maybeRewardReferral('u1', 'monthly')");
     expect(db.referrals[0].status).toBe("rewarded");
-    expect(db.referrals[0].reward_amount_paise).toBe(5000);
+    expect(db.referrals[0].reward_amount_paise).toBe(15000);
     expect(db.wallet_transactions).toHaveLength(1);
     expect(db.wallet_transactions[0]).toMatchObject({
       user_id: "ref1", referral_id: "r1", kind: "referral_credit",
-      amount_paise: 5000, status: "completed",
+      amount_paise: 15000, status: "completed",
     });
     // Second call (e.g. checkout success + manual verify) must not double-pay.
     await run("maybeRewardReferral('u1', 'yearly')");
     expect(db.wallet_transactions).toHaveLength(1);
-    expect(db.referrals[0].reward_amount_paise).toBe(5000);
+    expect(db.referrals[0].reward_amount_paise).toBe(15000);
   });
 
-  it("rewards ₹100 for a Yearly first purchase", async () => {
+  it("rewards ₹500 for a Yearly first purchase", async () => {
     db.referrals.push({
       id: "r1", code: "ABC12345", referrer_id: "ref1", referred_id: "u1",
       status: "pending", created_at: new Date().toISOString(),
     });
     await run("maybeRewardReferral('u1', 'yearly')");
-    expect(db.referrals[0].reward_amount_paise).toBe(10000);
-    expect(db.wallet_transactions[0].amount_paise).toBe(10000);
+    expect(db.referrals[0].reward_amount_paise).toBe(50000);
+    expect(db.wallet_transactions[0].amount_paise).toBe(50000);
   });
 
   it("does nothing when there is no pending referral", async () => {
@@ -288,14 +288,14 @@ describe("Referrals & wallet — learner website", () => {
   });
 
   it("Refer & Earn shows the code, link and copy buttons", async () => {
-    run("myReferralCode = 'ABC12345'; myReferrals = [{id:'r1', code:'ABC12345', referrerId:'ref1', referredId:'u1', status:'rewarded', rewardPaise:5000, createdAtMs:1000}];");
+    run("myReferralCode = 'ABC12345'; myReferrals = [{id:'r1', code:'ABC12345', referrerId:'ref1', referredId:'u1', status:'rewarded', rewardPaise:15000, createdAtMs:1000}];");
     const html = run("renderRefer()") as string;
     expect(html).toContain("ABC12345");
     expect(html).toContain("https://technoacademy.online/technotrade.html?ref=ABC12345");
     expect(html).toContain('id="copyRefLinkBtn"');
     expect(html).toContain('id="copyRefCodeBtn"');
-    expect(html).toContain("₹50");
-    expect(html).toContain("₹100");
+    expect(html).toContain("₹150");
+    expect(html).toContain("₹500");
   });
 
   it("Refer & Earn always shows the copy buttons, disabled until the code loads", () => {
@@ -437,13 +437,13 @@ describe("Referrals & wallet — learner website", () => {
 
   it("Wallet has an explicit Withdrawal history section for referral money", () => {
     // This is the referral-money history Rupu asked for — NOT the Razorpay
-    // "Payment history" row on Profile. Credits show as Earned ₹50/₹100
+    // "Payment history" row on Profile. Credits show as Earned ₹150/₹500
     // with the plan (and the friend's code when known); withdrawals show
     // their Pending/Complete/Rejected status with the UPI ID and date.
-    run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:5000, createdAtMs:1000}];
+    run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:15000, createdAtMs:1000}];
       walletTxns = [
-      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
-      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:10000, status:'completed', upiId:'', referralId:'', createdAtMs:2000},
+      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:15000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
+      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:50000, status:'completed', upiId:'', referralId:'', createdAtMs:2000},
       {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'requested', upiId:'learner@okhdfcbank', createdAtMs:3000},
       {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'paid', upiId:'learner@okhdfcbank', createdAtMs:4000},
       {id:'t5', userId:'u1', kind:'withdrawal', amountPaise:-2000, status:'rejected', upiId:'learner@okhdfcbank', createdAtMs:5000},
@@ -452,10 +452,10 @@ describe("Referrals & wallet — learner website", () => {
     expect(html).toContain("Withdrawal history");
     expect(html).toContain("Your referral earnings and UPI withdrawals");
     expect(html).not.toContain("Razorpay");
-    expect(html).toContain("Earned ₹50");
+    expect(html).toContain("Earned ₹150");
     expect(html).toContain("Monthly plan");
     expect(html).toContain("Code: ABCD1234");
-    expect(html).toContain("Earned ₹100");
+    expect(html).toContain("Earned ₹500");
     expect(html).toContain("Yearly plan");
     expect(html).toContain("Status: Earned");
     expect(html).toContain("Status: Pending");
@@ -486,7 +486,7 @@ describe("Referrals & wallet — learner website", () => {
   it("re-rendering Wallet does not re-trigger the wallet load (audit: no render loop)", async () => {
     // Mirrors the Refer & Earn loop regression: bindWallet must load once,
     // and the re-render loadWallet triggers must not fetch again.
-    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 5000, status: "completed", upi_id: "", created_at: new Date().toISOString() });
+    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 15000, status: "completed", upi_id: "", created_at: new Date().toISOString() });
     location.hash = "#/wallet";
     run("render()");
     await flush();
@@ -497,7 +497,7 @@ describe("Referrals & wallet — learner website", () => {
     await flush();
     expect(db.__selects["wallet_transactions"]).toBe(1);
     expect(document.getElementById("view")!.innerHTML).toContain("Withdrawal history");
-    expect(document.getElementById("view")!.innerHTML).toContain("Earned ₹50");
+    expect(document.getElementById("view")!.innerHTML).toContain("Earned ₹150");
   });
 
   it("Wallet Withdraw button jumps to the form and focuses the UPI field", () => {
