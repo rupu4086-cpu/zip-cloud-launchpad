@@ -2469,7 +2469,7 @@
       }
       function walletRow(t){
         return {id: t.id, userId: t.user_id || "", kind: t.kind || "", amountPaise: t.amount_paise || 0,
-          status: t.status || "completed", upiId: t.upi_id || "",
+          status: t.status || "completed", upiId: t.upi_id || "", referralId: t.referral_id || "",
           createdAtMs: t.created_at ? Date.parse(t.created_at) : 0};
       }
       let myReferralCode = null;
@@ -2676,18 +2676,29 @@
           '<div id="withdrawMsg"></div>' +
           '<div style="height:12px"></div>' +
           '<button class="btn btn-gold" id="withdrawBtn">Request withdrawal</button></div>';
+        // ---------- Withdrawal history (referral money ONLY) ----------
+        // This is NOT the Razorpay "Payment history" row on Profile: it
+        // lists wallet_transactions only — referral earnings and their
+        // UPI withdrawals, each with its status.
+        html += '<h3>Withdrawal history</h3>' +
+          '<p class="mut">Your referral earnings and UPI withdrawals.</p>';
         if(walletTxns === null){
           html += '<div class="loading">Loading transactions…</div>';
         } else if(!txns.length){
-          html += '<div class="empty"><b>No transactions yet</b><p>Referral earnings will appear here.</p></div>';
+          html += '<div class="empty"><b>No withdrawals yet</b><p>Referral earnings and UPI withdrawals will appear here.</p></div>';
         } else {
           html += txns.map(t => {
-            const label = t.kind === "referral_credit" ? "Referral reward" : "UPI withdrawal";
-            const statusLabel = t.kind === "referral_credit" ? "Earned" :
-              t.status === "requested" ? "Pending" : t.status === "paid" ? "Complete" :
+            if(t.kind === "referral_credit"){
+              // ₹50 = Monthly first purchase, ₹100 = Yearly first purchase.
+              const plan = t.amountPaise === 5000 ? "Monthly" : t.amountPaise === 10000 ? "Yearly" : "";
+              const ref = (myReferrals || []).find(r => r.id === t.referralId);
+              const detail = "Referral reward" + (plan ? " · " + plan + " plan" : "") + (ref && ref.code ? " · Code: " + ref.code : "");
+              return '<div class="card"><div class="prow"><b>Earned ' + fmtRs(t.amountPaise) + '</b><b>+' + fmtRs(t.amountPaise) + '</b></div>' +
+                '<p class="mut">Status: Earned · ' + esc(detail) + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
+            }
+            const statusLabel = t.status === "requested" ? "Pending" : t.status === "paid" ? "Complete" :
               t.status === "rejected" ? "Rejected" : t.status;
-            const sign = t.amountPaise >= 0 ? "+" : "-";
-            return '<div class="card"><div class="prow"><b>' + esc(label) + '</b><b>' + sign + fmtRs(Math.abs(t.amountPaise)) + '</b></div>' +
+            return '<div class="card"><div class="prow"><b>UPI withdrawal</b><b>-' + fmtRs(Math.abs(t.amountPaise)) + '</b></div>' +
               '<p class="mut">Status: ' + esc(statusLabel) + (t.upiId ? ' · UPI: ' + esc(t.upiId) : "") + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
           }).join("");
         }

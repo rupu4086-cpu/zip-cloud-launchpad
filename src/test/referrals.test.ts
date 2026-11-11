@@ -435,6 +435,71 @@ describe("Referrals & wallet — learner website", () => {
     expect(html).toContain("Status: Rejected");
   });
 
+  it("Wallet has an explicit Withdrawal history section for referral money", () => {
+    // This is the referral-money history Rupu asked for — NOT the Razorpay
+    // "Payment history" row on Profile. Credits show as Earned ₹50/₹100
+    // with the plan (and the friend's code when known); withdrawals show
+    // their Pending/Complete/Rejected status with the UPI ID and date.
+    run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:5000, createdAtMs:1000}];
+      walletTxns = [
+      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
+      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:10000, status:'completed', upiId:'', referralId:'', createdAtMs:2000},
+      {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'requested', upiId:'learner@okhdfcbank', createdAtMs:3000},
+      {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'paid', upiId:'learner@okhdfcbank', createdAtMs:4000},
+      {id:'t5', userId:'u1', kind:'withdrawal', amountPaise:-2000, status:'rejected', upiId:'learner@okhdfcbank', createdAtMs:5000},
+    ];`);
+    const html = run("renderWallet()") as string;
+    expect(html).toContain("Withdrawal history");
+    expect(html).toContain("Your referral earnings and UPI withdrawals");
+    expect(html).not.toContain("Razorpay");
+    expect(html).toContain("Earned ₹50");
+    expect(html).toContain("Monthly plan");
+    expect(html).toContain("Code: ABCD1234");
+    expect(html).toContain("Earned ₹100");
+    expect(html).toContain("Yearly plan");
+    expect(html).toContain("Status: Earned");
+    expect(html).toContain("Status: Pending");
+    expect(html).toContain("Status: Complete");
+    expect(html).toContain("Status: Rejected");
+    expect(html).toContain("learner@okhdfcbank");
+  });
+
+  it("Wallet empty history shows No withdrawals yet, not a permanent Loading…", () => {
+    run(`walletTxns = [];`);
+    const html = run("renderWallet()") as string;
+    expect(html).toContain("Withdrawal history");
+    expect(html).toContain("No withdrawals yet");
+    expect(html).not.toContain("Loading transactions");
+  });
+
+  it("a failed wallet load shows the empty state, not a permanent Loading…", async () => {
+    db.__failSelect = new Set(["wallet_transactions"]);
+    location.hash = "#/wallet";
+    run("render()");
+    await flush();
+    const html = document.getElementById("view")!.innerHTML;
+    expect(html).toContain("Withdrawal history");
+    expect(html).toContain("No withdrawals yet");
+    expect(html).not.toContain("Loading transactions");
+  });
+
+  it("re-rendering Wallet does not re-trigger the wallet load (audit: no render loop)", async () => {
+    // Mirrors the Refer & Earn loop regression: bindWallet must load once,
+    // and the re-render loadWallet triggers must not fetch again.
+    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 5000, status: "completed", upi_id: "", created_at: new Date().toISOString() });
+    location.hash = "#/wallet";
+    run("render()");
+    await flush();
+    expect(db.__selects["wallet_transactions"]).toBe(1);
+    run("render()");
+    run("render()");
+    run("render()");
+    await flush();
+    expect(db.__selects["wallet_transactions"]).toBe(1);
+    expect(document.getElementById("view")!.innerHTML).toContain("Withdrawal history");
+    expect(document.getElementById("view")!.innerHTML).toContain("Earned ₹50");
+  });
+
   it("Wallet Withdraw button jumps to the form and focuses the UPI field", () => {
     run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', createdAtMs:1000}];`);
     document.body.innerHTML = run("renderWallet()") as string;
