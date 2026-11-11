@@ -12,7 +12,6 @@ function makeLearnerClient() {
   query.eq = vi.fn(() => query);
   query.order = vi.fn(() => query);
   query.limit = vi.fn(() => query);
-  query.upsert = vi.fn(async () => ({ error: null }));
   query.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
   const channel: any = {};
   channel.on = vi.fn(() => channel);
@@ -35,16 +34,14 @@ function makeLearnerClient() {
   return { client, query, channel };
 }
 
-describe("Push notifications (website half)", () => {
+describe("In-app notifications (new courses + admin notifications)", () => {
   let run: (code: string) => unknown;
   let client: ReturnType<typeof makeLearnerClient>["client"];
-  let query: ReturnType<typeof makeLearnerClient>["query"];
   beforeEach(() => {
     document.body.innerHTML = html.split("<body>")[1]?.split("<script>")[0] ?? "";
     window.scrollTo = vi.fn();
     const made = makeLearnerClient();
     client = made.client;
-    query = made.query;
     Object.assign(window, { supabase: { createClient: () => client } });
     if (!script) throw new Error("Learner script missing");
     run = new Function(`${script}\nreturn code => eval(code);`)();
@@ -53,135 +50,21 @@ describe("Push notifications (website half)", () => {
   });
 
   afterEach(() => {
-    delete (globalThis as any).Notification;
-    try {
-      delete (window.navigator as any).serviceWorker;
-    } catch {
-      /* already absent */
-    }
     vi.restoreAllMocks();
   });
 
-  it("decodes a base64url VAPID key to bytes", () => {
-    expect(Array.from(run("urlBase64ToUint8Array('SGVsbG8')") as Uint8Array)).toEqual([72, 101, 108, 108, 111]);
-    expect(Array.from(run("urlBase64ToUint8Array('__8')") as Uint8Array)).toEqual([255, 255]);
-    const key = run("urlBase64ToUint8Array(VAPID_PUBLIC_KEY)") as Uint8Array;
-    expect(key.length).toBe(65);
-    expect(key[0]).toBe(4);
+  it("has no Web Push prompt or subscription code left (feature paused)", () => {
+    expect(html).not.toContain("maybeAskNotificationPermission");
+    expect(html).not.toContain("savePushSubscription");
+    expect(html).not.toContain("VAPID_PUBLIC_KEY");
+    expect(html).not.toContain("requestPermission");
+    expect(html).not.toContain("/sw.js");
   });
 
   it("finds only the brand-new courses", () => {
     expect(run("findNewCourses([{id:'a'}], [{id:'a'},{id:'b'}])")).toEqual([{ id: "b" }]);
     expect(run("findNewCourses([], [{id:'a'}])")).toEqual([{ id: "a" }]);
     expect(run("findNewCourses([{id:'a'}], [{id:'a'}])")).toEqual([]);
-  });
-
-  describe("maybeAskNotificationPermission (once-only)", () => {
-    function mockNotification(permission: string, result: string) {
-      const requestPermission = vi.fn(async () => result);
-      (globalThis as any).Notification = { permission, requestPermission };
-      return requestPermission;
-    }
-
-    it("asks once when permission is still default, then never again", async () => {
-      const ask = mockNotification("default", "granted");
-      expect(await run("maybeAskNotificationPermission()")).toBe("granted");
-      expect(ask).toHaveBeenCalledTimes(1);
-      expect(localStorage.getItem("tt_web_notif_asked")).toBe("true");
-      // Second call (e.g. next sign-in): no second prompt.
-      expect(await run("maybeAskNotificationPermission()")).toBe("asked");
-      expect(ask).toHaveBeenCalledTimes(1);
-    });
-
-    it("never re-prompts a user who denied", async () => {
-      const ask = mockNotification("denied", "denied");
-      expect(await run("maybeAskNotificationPermission()")).toBe("denied");
-      expect(ask).not.toHaveBeenCalled();
-      expect(localStorage.getItem("tt_web_notif_asked")).toBeNull();
-    });
-
-    it("does not prompt when the Settings toggle is off", async () => {
-      const ask = mockNotification("default", "granted");
-      run("store.setSettings({notificationsEnabled:false})");
-      expect(await run("maybeAskNotificationPermission()")).toBe("off");
-      expect(ask).not.toHaveBeenCalled();
-    });
-
-    it("reports unsupported when the browser has no Notification API", async () => {
-      expect(await run("maybeAskNotificationPermission()")).toBe("unsupported");
-    });
-  });
-
-  describe("savePushSubscription", () => {
-    function mockServiceWorker(existing: any) {
-      let lastOpts: any = null;
-      const subscribe = vi.fn(async (opts: any) => {
-        lastOpts = opts;
-        return {
-          endpoint: "https://push.example/abc",
-          toJSON: () => ({ keys: { p256dh: "p256key", auth: "authkey" } }),
-        };
-      });
-      const reg = {
-        pushManager: {
-          getSubscription: vi.fn(async () => existing),
-          subscribe,
-        },
-      };
-      Object.defineProperty(window.navigator, "serviceWorker", {
-        value: { ready: Promise.resolve(reg) },
-        configurable: true,
-      });
-      return { subscribe, reg, getOpts: () => lastOpts };
-    }
-
-    function grantPermission() {
-      (globalThis as any).Notification = { permission: "granted", requestPermission: vi.fn() };
-    }
-
-    it("subscribes with the VAPID key and upserts the subscription", async () => {
-      grantPermission();
-      const { subscribe, getOpts } = mockServiceWorker(null);
-      expect(await run("savePushSubscription()")).toBe(true);
-      expect(subscribe).toHaveBeenCalledTimes(1);
-      const opts = getOpts();
-      expect(opts).not.toBeNull();
-      expect(opts.userVisibleOnly).toBe(true);
-      expect(opts.applicationServerKey).toBeInstanceOf(Uint8Array);
-      expect(opts.applicationServerKey.length).toBe(65);
-      expect(query.upsert).toHaveBeenCalledWith(
-        { user_id: "test", endpoint: "https://push.example/abc", p256dh: "p256key", auth: "authkey" },
-        { onConflict: "endpoint" },
-      );
-    });
-
-    it("reuses an existing subscription instead of subscribing again", async () => {
-      grantPermission();
-      const existing = {
-        endpoint: "https://push.example/existing",
-        toJSON: () => ({ keys: { p256dh: "old-p256", auth: "old-auth" } }),
-      };
-      const { subscribe } = mockServiceWorker(existing);
-      expect(await run("savePushSubscription()")).toBe(true);
-      expect(subscribe).not.toHaveBeenCalled();
-      expect(query.upsert).toHaveBeenCalledWith(
-        { user_id: "test", endpoint: "https://push.example/existing", p256dh: "old-p256", auth: "old-auth" },
-        { onConflict: "endpoint" },
-      );
-    });
-
-    it("fails silently when permission is not granted", async () => {
-      (globalThis as any).Notification = { permission: "default", requestPermission: vi.fn() };
-      mockServiceWorker(null);
-      expect(await run("savePushSubscription()")).toBe(false);
-      expect(query.upsert).not.toHaveBeenCalled();
-    });
-
-    it("fails silently without a service worker", async () => {
-      grantPermission();
-      expect(await run("savePushSubscription()")).toBe(false);
-      expect(query.upsert).not.toHaveBeenCalled();
-    });
   });
 
   describe("new-course inbox alerts", () => {

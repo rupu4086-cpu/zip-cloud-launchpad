@@ -721,54 +721,12 @@
       }
       function signOut(){ return supabaseClient.auth.signOut(); }
 
-      // ---------- Push notifications (Web Push) ----------
-      // VAPID public key only — the private key lives in the sender server's
-      // secrets, never in this repo. The phone-push SENDER (which delivers
-      // pushes while the site is closed) is not built yet; until then, admin
-      // notifications still reach users in-app via loadAdminNotifications().
-      const VAPID_PUBLIC_KEY = "BJMdhRqdaGDteTiUBESJ577ADSNF5EeAtgWqajjEnhhphKmKxXmJepDvnZjUlq2T8lterpqCjidFc-zPU-Nqn-c";
-      function urlBase64ToUint8Array(base64String){
-        const padding = "=".repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-        const raw = atob(base64);
-        const out = new Uint8Array(raw.length);
-        for(let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-        return out;
-      }
-      // Ask once, right after sign-up/sign-in, and never again: not when the
-      // user denied, not when they turned notifications off in Settings.
-      // If permission was already granted but no subscription was saved yet
-      // (e.g. the save failed before), retry the save instead of prompting.
-      async function maybeAskNotificationPermission(){
-        try{
-          if(typeof Notification === "undefined") return "unsupported";
-          if(!store.settings().notificationsEnabled) return "off";
-          if(Notification.permission === "granted"){ await savePushSubscription(); return "granted"; }
-          if(Notification.permission !== "default") return Notification.permission; // denied: never re-prompt
-          if(LS.get("tt_web_notif_asked", false)) return "asked";
-          LS.set("tt_web_notif_asked", true); // set before asking: a dismissed prompt counts as asked
-          const result = await Notification.requestPermission();
-          if(result === "granted") await savePushSubscription();
-          return result;
-        }catch(e){ return "error"; }
-      }
-      async function savePushSubscription(){
-        try{
-          if(!currentUser) return false;
-          if(typeof navigator === "undefined" || !("serviceWorker" in navigator)) return false;
-          if(typeof Notification === "undefined" || Notification.permission !== "granted") return false;
-          const reg = await navigator.serviceWorker.ready;
-          if(!reg || !reg.pushManager) return false;
-          let sub = await reg.pushManager.getSubscription();
-          if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
-          if(!sub) return false;
-          const keys = (sub.toJSON && sub.toJSON().keys) || {};
-          const { error } = await supabaseClient.from("push_subscriptions").upsert(
-            {user_id: currentUser.id, endpoint: sub.endpoint, p256dh: keys.p256dh || null, auth: keys.auth || null},
-            {onConflict: "endpoint"});
-          return !error;
-        }catch(e){ return false; }
-      }
+      // NOTE (2026-11-11): Web Push is paused on Rupu's call — the permission
+      // prompt after sign-up, push-subscription saving and the service worker
+      // were removed, so no user ever sees a notification permission popup.
+      // In-app alerts below (new-course inbox + admin_notifications sync)
+      // stay live and need no permission. The push_subscriptions table
+      // remains in the database, empty, if the feature returns.
       function findNewCourses(prev, next){
         const seen = {};
         (prev || []).forEach(c => { seen[c.id] = true; });
@@ -2492,15 +2450,9 @@
           loadAdminAccess().catch(() => {});
         }
         landOnHomeAfterSignIn(event);
-        if(currentUser && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) maybeAskNotificationPermission().catch(() => {});
         startListeners();
         render();
       });
-      // Web Push service worker (public/sw.js at the site root). Registration
-      // fails silently where service workers are unavailable (http, old browsers).
-      if(typeof navigator !== "undefined" && "serviceWorker" in navigator){
-        navigator.serviceWorker.register("/sw.js").catch(() => {});
-      }
       window.addEventListener("hashchange", () => { paymentHistory = null; render(); window.scrollTo(0,0); });
     </script>
   </body>
