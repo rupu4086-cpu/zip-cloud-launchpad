@@ -128,7 +128,7 @@ describe("Razorpay Checkout (learner site)", () => {
     expect(MockRazorpay.instances).toHaveLength(1);
     const opts = MockRazorpay.instances[0]!.options;
     expect(opts.key).toBe("rzp_test_abc");
-    expect(opts.amount).toBe(120); // TEMP TEST PRICE: ₹2 minus 40% = ₹1.20, in paise
+    expect(opts.amount).toBe(60000); // ₹1,000 minus 40% = ₹600, in paise
     expect(opts.currency).toBe("INR");
     expect(opts.description).toContain("SPIN40");
     expect(MockRazorpay.opened).toHaveLength(1);
@@ -169,7 +169,7 @@ describe("Razorpay Checkout (learner site)", () => {
     await flush();
     await flush();
     expect(paymentsRows).toEqual([
-      { id: "pay_test123", user_id: "test", plan_id: "monthly", amount: 120, status: "captured" },
+      { id: "pay_test123", user_id: "test", plan_id: "monthly", amount: 60000, status: "captured" },
     ]);
     // The discounted payment activates the plan (amount check accepts the spin price).
     expect(subscriptionInserts).toHaveLength(1);
@@ -199,7 +199,7 @@ describe("Razorpay Checkout (learner site)", () => {
       id: "pay_disc2",
       user_id: "test",
       plan_id: "monthly",
-      amount: 100, // TEMP TEST PRICE: ₹2 minus 50% = ₹1, in paise
+      amount: 50000, // ₹1,000 minus 50% = ₹500, in paise
       status: "captured",
       created_at: new Date().toISOString(),
     });
