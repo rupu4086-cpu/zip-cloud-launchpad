@@ -373,6 +373,15 @@
         .cta-bar{grid-template-columns:minmax(0,1fr)}
       }
       @media(prefers-reduced-motion:reduce){.switch::after{transition:none}}
+      /* ---------- support chat (WhatsApp-style) ---------- */
+      .chat-thread{display:flex;flex-direction:column;gap:8px;max-height:55vh;overflow-y:auto;padding:4px 16px 8px}
+      .chat-msg{max-width:82%;padding:10px 12px;border-radius:14px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+      .chat-msg.mine{align-self:flex-end;background:var(--navy);color:#fff;border-bottom-right-radius:4px}
+      .chat-msg.theirs{align-self:flex-start;background:#fff;border:1px solid var(--line);color:var(--ink);border-bottom-left-radius:4px}
+      .chat-msg .chat-time{display:block;font-size:11px;opacity:.75;margin-top:4px}
+      .chat-input{display:flex;gap:8px;padding:0 16px 12px}
+      .chat-input input{flex:1}
+      .chat-input .btn{width:auto}
     </style>
   </head>
   <body>
@@ -404,7 +413,6 @@
         const SUPABASE_URL = "https://kgoptzoxvcfianbrlpsz.supabase.co";
         const SUPABASE_ANON_KEY = "sb_publishable_7NeQIXhFI3PTnKVr7VntFQ_zq-ps6qs";
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      const SUPPORT_EMAIL = "rupu4086@gmail.com";
       const WEB_VERSION = "1.0";
 
       // ---------- static data (mirrors android/.../data/Models.kt) ----------
@@ -886,17 +894,19 @@
         checkTodaySpin().catch(() => { /* spin check failure is non-fatal: insert still guards the discount */ });
         loadSubscription();
         loadAdminNotifications().catch(() => {}); // queued admin notifications -> in-app inbox
+        loadSupportMessages().catch(() => {}); // own support thread, refreshed live below
         // Live updates: re-fetch when the tables change (admin edits reflect instantly).
         // NOTE: postgres_changes only fires for tables added to the
         // supabase_realtime publication. If live updates do not arrive, run in
         // the Supabase SQL editor:
-        //   alter publication supabase_realtime add table courses, lessons, payment_config, subscriptions, home_categories, admin_notifications;
+        //   alter publication supabase_realtime add table courses, lessons, payment_config, subscriptions, home_categories, admin_notifications, support_messages;
         const ch = supabaseClient.channel("tt-live")
           .on("postgres_changes", {event: "*", schema: "public", table: "courses"}, () => loadCourses().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "payment_config"}, () => loadPaymentConfig().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "home_categories"}, () => loadHomeCategories().catch(() => {}))
           .on("postgres_changes", {event: "*", schema: "public", table: "subscriptions"}, () => loadSubscription())
           .on("postgres_changes", {event: "*", schema: "public", table: "admin_notifications"}, () => loadAdminNotifications().catch(() => {}))
+          .on("postgres_changes", {event: "INSERT", schema: "public", table: "support_messages"}, () => loadSupportMessages().catch(() => {}))
           .subscribe();
         unsubscribers.push(() => { supabaseClient.removeChannel(ch); });
       }
@@ -995,6 +1005,7 @@
         else if(r.name === "downloads"){ view.innerHTML = renderDownloads(); bindDownloads(); }
         else if(r.name === "payments"){ view.innerHTML = renderPaymentHistory(); bindPaymentHistory(); }
         else if(r.name === "notifications"){ view.innerHTML = renderNotifications(); }
+        else if(r.name === "help"){ view.innerHTML = renderSupportChat(); bindSupportChat(); }
         else if(r.name === "settings"){ view.innerHTML = renderSettings(); bindSettings(); }
         else { view.innerHTML = renderHome(); bindHome(); }
         fields.forEach(field => {
@@ -2041,7 +2052,7 @@
       async function onCheckoutSuccess(plan, amountPaise, response){
         const payId = response && response.razorpay_payment_id;
         if(!payId){
-          plansNotice = "Payment finished but no Payment ID came back. Contact support (" + SUPPORT_EMAIL + ").";
+          plansNotice = "Payment finished but no Payment ID came back. Contact support from Help & Support.";
           render();
           return;
         }
@@ -2050,7 +2061,7 @@
           plan_id: plan.id, amount: amountPaise, status: "captured"
         });
         if(error){
-          plansNotice = "Payment received (ID " + payId + ") but could not be saved. Contact support (" + SUPPORT_EMAIL + ").";
+          plansNotice = "Payment received (ID " + payId + ") but could not be saved. Contact support from Help & Support.";
           render();
           return;
         }
@@ -2060,7 +2071,7 @@
         try{ await checkMyPayment(); }catch(e){}
         plansNotice = access().hasActiveSubscription
           ? "Payment confirmed — your " + plan.name + " plan is now active. Happy learning!"
-          : "Payment received (ID " + payId + "). It will be confirmed shortly — if your plan is not active in a few minutes, contact support (" + SUPPORT_EMAIL + ").";
+          : "Payment received (ID " + payId + "). It will be confirmed shortly — if your plan is not active in a few minutes, contact support from Help & Support.";
         render();
       }
       function bindPlans(){
@@ -2132,7 +2143,7 @@
           const rec = mine[0];
           const plan = planById(rec.planId);
           if(!plan || (rec.amountPaise !== plan.pricePaise && rec.amountPaise !== spinPricePaise(plan))){
-            verifyMsg("Found a payment, but its plan or amount does not match. Contact support (" + SUPPORT_EMAIL + ").", "err");
+            verifyMsg("Found a payment, but its plan or amount does not match. Contact support from Help & Support.", "err");
             return;
           }
           await createSubscriptionFromRecord(rec);
@@ -2158,7 +2169,7 @@
           const rec = normalizePayment(row);
           const plan = planById(rec.planId);
           if(!plan){
-            verifyMsg("This payment is not for a Monthly or Yearly plan. Contact support (" + SUPPORT_EMAIL + ").", "err");
+            verifyMsg("This payment is not for a Monthly or Yearly plan. Contact support from Help & Support.", "err");
             return;
           }
           if(rec.status !== "captured"){
@@ -2166,7 +2177,7 @@
             return;
           }
           if(rec.amountPaise !== plan.pricePaise && rec.amountPaise !== spinPricePaise(plan)){
-            verifyMsg("This payment's amount does not match the " + plan.name + " plan. Contact support (" + SUPPORT_EMAIL + ").", "err");
+            verifyMsg("This payment's amount does not match the " + plan.name + " plan. Contact support from Help & Support.", "err");
             return;
           }
           if(rec.userId && rec.userId !== uid){
@@ -2211,7 +2222,7 @@
           {icon:"⬇️", t:"Downloads", s:"Offline lesson videos", route:"downloads"},
           {icon:"🧾", t:"Payment history", s:"Your Razorpay payments", route:"payments"},
           {icon:"🔔", t:"Notifications", s:"Subscription updates", route:"notifications"},
-          {icon:"❓", t:"Help & Support", s:"Email " + SUPPORT_EMAIL, route:"help"},
+          {icon:"❓", t:"Help & Support", s:"Chat with us", route:"help"},
           {icon:"⚙️", t:"Settings", s:"Notifications, video quality, version", route:"settings"}
         ];
         rows.forEach(r => {
@@ -2219,16 +2230,14 @@
         });
         html += '</div>' +
           '<button class="btn btn-white signout" id="signOutBtn">Sign out</button>' +
-          '<p class="mut" style="text-align:center;font-size:12px;margin:14px 0 20px">TechnoTrade Academy · Website v' + WEB_VERSION + ' · ' + esc(SUPPORT_EMAIL) + '</p>' +
+          '<p class="mut" style="text-align:center;font-size:12px;margin:14px 0 20px">TechnoTrade Academy · Website v' + WEB_VERSION + '</p>' +
           '</div>';
         return html;
       }
       function bindProfile(){
         document.querySelectorAll("[data-profile]").forEach(el => {
           el.addEventListener("click", () => {
-            if(el.dataset.profile === "help"){
-              window.location.href = "mailto:" + SUPPORT_EMAIL + "?subject=TechnoTrade%20Academy%20—%20Help";
-            } else if(el.dataset.profile === "admin"){
+            if(el.dataset.profile === "admin"){
               window.location.href = "/admin.html";
             } else {
               go(el.dataset.profile);
@@ -2361,7 +2370,7 @@
           '</div><p class="mut">Applies to lesson playback on this device.</p></div>';
         html += '<div class="card"><div class="prow"><b>Website version</b><b>v' + WEB_VERSION + '</b></div>' +
           '<p class="mut">TechnoTrade Academy · Website ' + WEB_VERSION + ' · Android app v1.3.2</p>' +
-          '<p class="mut">Support: <a href="mailto:' + SUPPORT_EMAIL + '">' + SUPPORT_EMAIL + '</a></p></div>';
+          '<p class="mut">Support: <a href="#/help">Chat with us in Help &amp; Support</a></p></div>';
         return html;
       }
       function bindSettings(){
@@ -2377,6 +2386,78 @@
             render();
           });
         });
+      }
+
+      // ---------- Help & Support chat (WhatsApp-style, in-app) ----------
+      // Messages live in public.support_messages: {id, user_id, sender
+      // ("user"|"admin"), message, created_at}. The learner sees only their
+      // own thread; the admin replies from the admin panel's Support tab.
+      let supportMessages = null;   // normalized rows, oldest first
+      let supportLoading = false;
+      function supportMessageRow(m){
+        return {id: m.id, userId: m.user_id || "", sender: m.sender || "user",
+          message: m.message || "", createdAtMs: m.created_at ? Date.parse(m.created_at) : 0};
+      }
+      async function loadSupportMessages(){
+        if(!currentUser) return;
+        if(supportLoading) return;
+        supportLoading = true;
+        const uid = currentUser.id;
+        try{
+          const { data, error } = await supabaseClient.from("support_messages").select("*")
+            .eq("user_id", uid).order("created_at", {ascending: true});
+          if(error) throw error;
+          // Never show another account's thread if the user changed mid-fetch.
+          if(!currentUser || currentUser.id !== uid) return;
+          supportMessages = (data || []).map(supportMessageRow);
+          const r = currentRoute();
+          if(r.name === "help") render();
+        }catch(e){ /* chat load failure is non-fatal: the empty state stays */ }
+        finally{ supportLoading = false; }
+      }
+      function renderSupportChat(){
+        let html = subHead("Help & Support", "profile");
+        if(!supportMessages){
+          html += '<div class="loading">Loading messages…</div>';
+        } else if(!supportMessages.length){
+          html += '<div class="empty"><b>No messages yet</b><p>Send your first message below — the admin replies here, like a chat.</p></div>';
+        } else {
+          html += '<div class="chat-thread" id="supportThread">' + supportMessages.map(m =>
+            '<div class="chat-msg ' + (m.sender === "admin" ? "theirs" : "mine") + '">' + esc(m.message) +
+            '<span class="chat-time">' + fmtDateTime(m.createdAtMs) + '</span></div>').join("") + '</div>';
+        }
+        html += '<div class="chat-input"><input id="supportInput" type="text" placeholder="Type your message…" autocomplete="off">' +
+          '<button class="btn btn-gold" id="supportSendBtn">Send</button></div>';
+        return html;
+      }
+      function bindSupportChat(){
+        if(supportMessages === null) loadSupportMessages().catch(() => {});
+        const thread = $("supportThread");
+        if(thread) thread.scrollTop = thread.scrollHeight;
+        const send = () => { sendSupportMessage().catch(() => {}); };
+        const btn = $("supportSendBtn");
+        if(btn) btn.addEventListener("click", send);
+        const input = $("supportInput");
+        if(input) input.addEventListener("keydown", e => { if(e.key === "Enter") send(); });
+      }
+      async function sendSupportMessage(){
+        const input = $("supportInput");
+        const text = input ? input.value.trim() : "";
+        if(!text || !currentUser) return;
+        const btn = $("supportSendBtn");
+        if(btn) btn.disabled = true;
+        try{
+          const { error } = await supabaseClient.from("support_messages").insert({
+            user_id: currentUser.id, sender: "user", message: text
+          });
+          if(error) throw error;
+          if(input) input.value = "";
+          await loadSupportMessages();
+        }catch(e){
+          toast("Could not send — check your connection and try again.");
+        }finally{
+          if(btn) btn.disabled = false;
+        }
       }
 
       // Fresh sign-in always lands on Home: a tab other than Home left in the
@@ -2401,6 +2482,8 @@
         const user = session ? session.user : null;
         const uid = user ? user.id : null;
         if(event === "TOKEN_REFRESHED" && uid === lastAuthUid) return; // silent refresh: nothing to redo
+        // A different account must never see the previous account's support thread.
+        if(uid !== lastAuthUid) supportMessages = null;
         lastAuthUid = uid;
         currentUser = user ? normalizeUser(user) : null;
         isAdmin = false;

@@ -74,6 +74,14 @@
     @media(max-width:700px){.stat{grid-template-columns:repeat(2,minmax(0,1fr))}.stat div:last-child{grid-column:1/-1}.thumb-sm{width:92px;height:56px}header h1{font-size:17px}.toplink{font-size:12px}.head-inner{gap:9px}.logo{width:40px;height:40px}.card{padding:14px}.actions button{min-width:100px}}
     @media(max-width:360px){.wrap{padding-left:10px;padding-right:10px}.actions{display:grid;grid-template-columns:1fr}.actions button{min-width:0}.toplink{display:none}}
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+    .chat-thread{display:flex;flex-direction:column;gap:8px;max-height:55vh;overflow-y:auto;padding:4px 0 8px}
+    .chat-msg{max-width:82%;padding:10px 12px;border-radius:14px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+    .chat-msg.mine{align-self:flex-end;background:var(--navy);color:#fff;border-bottom-right-radius:4px}
+    .chat-msg.theirs{align-self:flex-start;background:#fff;border:1px solid var(--line);color:var(--ink);border-bottom-left-radius:4px}
+    .chat-msg .chat-time{display:block;font-size:11px;opacity:.75;margin-top:4px}
+    .chat-input{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .chat-input textarea{flex:1;min-width:200px}
+    .chat-input button{flex:0 0 auto}
   </style>
 </head>
 <body>
@@ -210,6 +218,21 @@
         <h3>Recent notifications</h3><div id="notifList"></div>
       </div>
     </section>
+
+    <section data-sec="support" class="hide">
+      <div class="card"><h2>Support chat</h2>
+        <p class="note">Learners message you from Help &amp; Support on the website. Pick a conversation to reply — your reply appears in the learner's chat straight away.</p>
+        <div id="supportMsg" class="msg"></div>
+        <div class="actions"><button class="secondary" onclick="loadSupport()">Reload conversations</button></div>
+        <div id="supportList"></div>
+        <div id="supportThreadBox" class="hide">
+          <h3 id="supportThreadTitle">Conversation</h3>
+          <div id="supportThread"></div>
+          <label for="supportReply">Reply</label><textarea id="supportReply" placeholder="Type your reply…"></textarea>
+          <div class="actions"><button onclick="sendSupportReply()">Send reply</button><button class="secondary" onclick="closeSupportThread()">Back to conversations</button></div>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -265,13 +288,13 @@ async function refreshAccess(){
 supabaseClient.auth.onAuthStateChange(event=>{if(event==="SIGNED_IN"||event==="SIGNED_OUT"||event==="USER_UPDATED"||event==="INITIAL_SESSION")refreshAccess();});
 refreshAccess();
 
-const TABS=[["dashboard","Dashboard"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"]];
+const TABS=[["dashboard","Dashboard"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"],["support","Support"]];
 let activeTab="dashboard";
 function buildTabs(){$("tabs").innerHTML=TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(id===activeTab?"active":"")+'" onclick="showTab(\''+id+'\')">'+label+"</button>").join("");}
 function showTab(id){activeTab=id;document.querySelectorAll("#tabs button").forEach(button=>button.classList.toggle("active",button.dataset.tab===id));document.querySelectorAll("#app section").forEach(section=>section.classList.toggle("hide",section.dataset.sec!==id));}
 buildTabs();
 
-async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications()]);}
+async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications(),loadSupport()]);}
 async function loadDashboard(){
   try{
     const [courses,lessons,users,subs,payments]=await Promise.all([
@@ -335,8 +358,76 @@ async function grantSubscription(){const email=$("grantEmail").value.trim(),plan
 async function loadNotifications(){const {data,error}=await supabaseClient.from("admin_notifications").select("*").order("created_at",{ascending:false}).limit(20);if(error)return showMsg($("notifMsg"),"Could not load notifications: "+errorText(error),"err");$("notifList").innerHTML=(data||[]).map(note=>{const pill=note.status==="sent"?"green":(note.status==="failed"?"red":"amber");return '<div class="item"><h4>'+esc(note.title)+' <span class="pill '+pill+'">'+esc(note.status)+'</span></h4><p class="mut">'+esc(note.message)+'</p><p class="mut">To: '+esc(note.audience)+' • '+esc(fmtDate(note.created_at))+'</p></div>';}).join("")||'<p class="mut">No notifications queued yet.</p>';}
 async function sendNotification(){const title=$("nfTitle").value.trim(),message=$("nfMessage").value.trim();if(!title||!message)return showMsg($("notifMsg"),"Enter both a title and message.","err");const {error}=await supabaseClient.from("admin_notifications").insert({title,message,audience:$("nfAudience").value,status:"queued",created_by_email:currentUser?.email||""});if(error)return showMsg($("notifMsg"),"Queue failed: "+errorText(error),"err");$("nfTitle").value="";$("nfMessage").value="";await loadNotifications();showMsg($("notifMsg"),"Notification saved as queued.","ok");}
 
+let supportRows=[],supportUsers={},supportOpenUserId=null;
+// Group rows into conversations: one per user, newest first. "Unread" is the
+// count of learner messages sent after the admin's last reply (all of them
+// when the admin has never replied) — no read flag is stored.
+function groupSupportConversations(rows){
+  const byUser={};
+  (rows||[]).forEach(row=>{
+    const uid=row.user_id||"";
+    if(!uid)return;
+    if(!byUser[uid])byUser[uid]={userId:uid,last:null,unread:0};
+    const conv=byUser[uid];
+    if(!conv.last||String(row.created_at||"")>=String(conv.last.created_at||""))conv.last=row;
+  });
+  Object.values(byUser).forEach(conv=>{
+    const lastAdminAt=Math.max(0,...(rows||[]).filter(r=>r.user_id===conv.userId&&r.sender==="admin").map(r=>Date.parse(r.created_at||"")||0));
+    conv.unread=(rows||[]).filter(r=>r.user_id===conv.userId&&r.sender==="user"&&(Date.parse(r.created_at||"")||0)>lastAdminAt).length;
+  });
+  return Object.values(byUser).sort((a,b)=>String(b.last.created_at||"").localeCompare(String(a.last.created_at||"")));
+}
+async function loadSupport(){
+  if(!isAdmin)return;
+  const {data,error}=await supabaseClient.from("support_messages").select("*").order("created_at",{ascending:false}).limit(200);
+  if(error)return showMsg($("supportMsg"),"Could not load support messages: "+errorText(error),"err");
+  supportRows=data||[];
+  const {data:users,error:userError}=await supabaseClient.from("users").select("id,email,display_name");
+  if(userError)return showMsg($("supportMsg"),"Could not load learners: "+errorText(userError),"err");
+  supportUsers=Object.fromEntries((users||[]).map(user=>[user.id,user]));
+  renderSupportList();
+  if(supportOpenUserId)renderSupportThread();
+}
+function supportUserLabel(userId){
+  const user=supportUsers[userId];
+  return user?(user.display_name||user.email||userId):userId;
+}
+function renderSupportList(){
+  const convs=groupSupportConversations(supportRows);
+  $("supportList").innerHTML=convs.map(conv=>{
+    const who=supportUserLabel(conv.userId);
+    const last=conv.last;
+    const preview=(last.sender==="admin"?"You: ":"")+String(last.message||"");
+    return '<div class="item"><h4>'+esc(who)+(conv.unread?(' <span class="pill amber">'+esc(conv.unread)+' new</span>'):"")+'</h4>'+
+      '<p class="mut">'+esc(preview)+'</p>'+
+      '<p class="mut">'+esc(fmtDate(last.created_at))+'</p>'+
+      '<div class="actions"><button class="secondary" data-support-open="'+esc(conv.userId)+'">Open chat</button></div></div>';
+  }).join("")||'<p class="mut">No support messages yet.</p>';
+}
+$("supportList").addEventListener("click",event=>{const button=event.target.closest("button[data-support-open]");if(button)openSupportThread(button.dataset.supportOpen);});
+function openSupportThread(userId){supportOpenUserId=userId;renderSupportThread();$("supportThreadBox").classList.remove("hide");$("supportThreadBox").scrollIntoView({behavior:"smooth",block:"start"});}
+function closeSupportThread(){supportOpenUserId=null;$("supportThreadBox").classList.add("hide");renderSupportList();}
+function renderSupportThread(){
+  if(!supportOpenUserId)return;
+  $("supportThreadTitle").textContent="Chat with "+supportUserLabel(supportOpenUserId);
+  const rows=supportRows.filter(r=>r.user_id===supportOpenUserId).slice().sort((a,b)=>String(a.created_at||"").localeCompare(String(b.created_at||"")));
+  $("supportThread").innerHTML=rows.length?'<div class="chat-thread">'+rows.map(m=>'<div class="chat-msg '+(m.sender==="admin"?"mine":"theirs")+'">'+esc(m.message||"")+'<span class="chat-time">'+esc(fmtDate(m.created_at))+'</span></div>').join("")+'</div>':'<p class="mut">No messages in this conversation yet.</p>';
+  const thread=$("supportThread").querySelector(".chat-thread");
+  if(thread)thread.scrollTop=thread.scrollHeight;
+}
+async function sendSupportReply(){
+  const text=$("supportReply").value.trim();
+  if(!supportOpenUserId)return showMsg($("supportMsg"),"Open a conversation first.","err");
+  if(!text)return showMsg($("supportMsg"),"Type a reply first.","err");
+  const {error}=await supabaseClient.from("support_messages").insert({user_id:supportOpenUserId,sender:"admin",message:text});
+  if(error)return showMsg($("supportMsg"),"Reply failed: "+errorText(error),"err");
+  $("supportReply").value="";
+  await loadSupport();
+  showMsg($("supportMsg"),"Reply sent.","ok");
+}
+
 function stopLive(){if(liveChannel){supabaseClient.removeChannel(liveChannel);liveChannel=null;}}
-function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).on("postgres_changes",{event:"*",schema:"public",table:"home_categories"},()=>loadCategories()).subscribe();}
+function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).on("postgres_changes",{event:"*",schema:"public",table:"home_categories"},()=>loadCategories()).on("postgres_changes",{event:"*",schema:"public",table:"support_messages"},()=>loadSupport()).subscribe();}
 </script>
 </body>
 </html>
