@@ -94,7 +94,7 @@ describe("Hosted learner interactions", () => {
     }
 
     function fillSignup(name: string, email: string, password: string) {
-      (document.getElementById("toggleMode") as HTMLButtonElement).click();
+      // The login page already opens in sign-up mode — no toggle click needed.
       (document.getElementById("authName") as HTMLInputElement).value = name;
       (document.getElementById("authEmail") as HTMLInputElement).value = email;
       (document.getElementById("authPassword") as HTMLInputElement).value = password;
@@ -104,12 +104,34 @@ describe("Hosted learner interactions", () => {
       return document.getElementById("emailBtn") as HTMLButtonElement;
     }
 
+    function expectSignupMode() {
+      expect(document.getElementById("signupNameBox")?.classList.contains("hide")).toBe(false);
+      expect(signupButton().textContent).toBe("Create account");
+      expect(document.getElementById("toggleMode")?.textContent).toBe("Already have an account? Sign in");
+      expect(document.getElementById("emailDivider")?.textContent).toBe("or sign up with email");
+    }
+
     function expectSigninMode() {
       expect(document.getElementById("signupNameBox")?.classList.contains("hide")).toBe(true);
       expect(signupButton().textContent).toBe("Sign in");
       expect(document.getElementById("toggleMode")?.textContent).toBe("Create a new account");
+      expect(document.getElementById("emailDivider")?.textContent).toBe("or sign in with email");
       expect(signupButton().disabled).toBe(false);
     }
+
+    it("shows the sign-up form first on the signed-out landing page", () => {
+      showLogin();
+      expectSignupMode();
+    });
+
+    it("toggles between sign-up and sign-in both ways", () => {
+      showLogin();
+      expectSignupMode();
+      (document.getElementById("toggleMode") as HTMLButtonElement).click();
+      expectSigninMode();
+      (document.getElementById("toggleMode") as HTMLButtonElement).click();
+      expectSignupMode();
+    });
 
     it("shows the confirmation message and switches to sign-in when sign-up returns no session", async () => {
       vi.mocked(client.auth.signUp).mockResolvedValue({ data: {}, error: null });

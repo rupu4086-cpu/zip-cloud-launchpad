@@ -918,7 +918,7 @@
           '<div id="authMsg"></div>' +
           '<div class="card">' +
             '<button class="btn btn-navy" id="googleBtn">Continue with Google</button>' +
-            '<div class="divider">or sign in with email</div>' +
+            '<div class="divider" id="emailDivider">or sign in with email</div>' +
             '<div id="signupNameBox" class="hide"><label for="authName">Your name</label><input id="authName" type="text" placeholder="Rupu Buragohain" autocomplete="name"></div>' +
             '<label for="authEmail">Email</label>' +
             '<input id="authEmail" type="email" placeholder="you@gmail.com" autocomplete="email">' +
@@ -949,10 +949,13 @@
           $("signupNameBox").classList.toggle("hide", m !== "signup");
           $("emailBtn").textContent = m === "signup" ? "Create account" : "Sign in";
           $("toggleMode").textContent = m === "signup" ? "Already have an account? Sign in" : "Create a new account";
+          $("emailDivider").textContent = m === "signup" ? "or sign up with email" : "or sign in with email";
         }
         $("toggleMode").addEventListener("click", () => {
           setMode(mode === "signin" ? "signup" : "signin");
         });
+        // The signed-out landing page shows the sign-up form first.
+        setMode("signup");
         $("emailBtn").addEventListener("click", async () => {
           const email = $("authEmail").value.trim();
           const password = $("authPassword").value;
