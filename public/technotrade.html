@@ -2226,7 +2226,7 @@
           ...(isAdmin ? [{icon:"🛠️", t:"Admin Panel", s:"Manage courses, lessons and payments", route:"admin"}] : []),
           {icon:"📈", t:"My progress", s:"Completed lessons by course", route:"progress"},
           {icon:"⬇️", t:"Downloads", s:"Offline lesson videos", route:"downloads"},
-          {icon:"🧾", t:"Payment history", s:"Your Razorpay payments", route:"payments"},
+          {icon:"🧾", t:"Payment history", s:"Payments, referral earnings and withdrawals", route:"payments"},
           {icon:"🔔", t:"Notifications", s:"Subscription updates", route:"notifications"},
           {icon:"🎁", t:"Refer & Earn", s:"Invite friends, earn ₹200–₹500", route:"refer"},
           {icon:"👛", t:"Wallet", s:"Balance and UPI withdrawals", route:"wallet"},
@@ -2334,20 +2334,38 @@
         let html = subHead("Payment history", "profile");
         if(!paymentHistory){
           html += '<div class="loading">Loading payments…</div>';
-        } else if(!paymentHistory.length){
-          html += '<div class="empty"><b>No payments yet</b><p>Payments you make through Razorpay will appear here.</p></div>';
         } else {
-          html += paymentHistory.map(p => {
+          // One merged list, newest first: Razorpay payments (from the
+          // payments table) + referral credits and withdrawals (from
+          // wallet_transactions — the same rows the Wallet page shows).
+          // Each row carries its type at a glance: Payment / Earned
+          // (referral credit) / UPI withdrawal.
+          const entries = paymentHistory.map(p => {
             const plan = planById(p.planId);
-            return '<div class="card"><div class="prow"><b>' + esc(plan ? plan.name + " plan" : "Payment") + '</b><b>' + fmtRs(p.amountPaise) + '</b></div>' +
-              '<p class="mut" style="margin:4px 0 0">Status: ' + esc(p.status || "") + '<br>' +
+            return {ms: (p.createdAt && p.createdAt.seconds) ? p.createdAt.seconds * 1000 : 0,
+              html: '<div class="card"><div class="prow"><b>' + esc(plan ? plan.name + " plan" : "Payment") + '</b><b>' + fmtRs(p.amountPaise) + '</b></div>' +
+              '<p class="mut" style="margin:4px 0 0">Payment · Status: ' + esc(p.status || "") + '<br>' +
               (p.razorpayPaymentId ? "Payment ID: " + esc(p.razorpayPaymentId) + "<br>" : "") +
-              (p.createdAt && p.createdAt.seconds ? fmtDateTime(p.createdAt.seconds * 1000) : "") + '</p></div>';
-          }).join("");
+              (p.createdAt && p.createdAt.seconds ? fmtDateTime(p.createdAt.seconds * 1000) : "") + '</p></div>'};
+          });
+          (walletTxns || []).forEach(t => entries.push({ms: t.createdAtMs || 0, html: walletTxnRowHtml(t)}));
+          entries.sort((a, b) => b.ms - a.ms);
+          if(!entries.length){
+            html += '<div class="empty"><b>No payments yet</b><p>Payments, referral credits and withdrawals will appear here.</p></div>';
+          } else {
+            html += entries.map(e => e.html).join("");
+          }
+          // The wallet rows load separately; they land on the next render
+          // (loadWallet re-renders this route) and never leave a
+          // permanent spinner behind.
+          if(walletTxns === null){
+            html += '<div class="loading">Loading referral credits and withdrawals…</div>';
+          }
         }
         return html;
       }
       function bindPaymentHistory(){
+        if(walletTxns === null) loadWallet().catch(() => {});
         if(paymentHistoryLoading || paymentHistory !== null) return;
         paymentHistoryLoading = true;
         supabaseClient.from("payments").select("*").eq("user_id", currentUser.id).order("created_at", {ascending: false})
@@ -2645,17 +2663,34 @@
           if(!currentUser || currentUser.id !== uid) return;
           walletTxns = (data || []).map(walletRow);
           const r = currentRoute();
-          // The Profile header shows the wallet balance too, so re-render
-          // it as well when the balance lands.
-          if(r.name === "wallet" || r.name === "profile") render();
+          // The Profile header shows the wallet balance too, and the
+          // Payment history view merges the wallet rows, so re-render
+          // those routes as well when the transactions land.
+          if(r.name === "wallet" || r.name === "profile" || r.name === "payments") render();
         }catch(e){
           // Same as loadMyReferrals: never leave a view stuck on
           // "Loading…" — show the empty state instead.
           walletTxns = [];
           const r = currentRoute();
-          if(r.name === "wallet" || r.name === "profile") render();
+          if(r.name === "wallet" || r.name === "profile" || r.name === "payments") render();
         }
         finally{ walletLoading = false; }
+      }
+      // One wallet-transaction row, shared by the Wallet page's Withdrawal
+      // history and the Payment history view (both show the same rows).
+      function walletTxnRowHtml(t){
+        if(t.kind === "referral_credit"){
+          // ₹200 = Monthly first purchase, ₹500 = Yearly first purchase.
+          const plan = t.amountPaise === 20000 ? "Monthly" : t.amountPaise === 50000 ? "Yearly" : "";
+          const ref = (myReferrals || []).find(r => r.id === t.referralId);
+          const detail = "Referral reward" + (plan ? " · " + plan + " plan" : "") + (ref && ref.code ? " · Code: " + ref.code : "");
+          return '<div class="card"><div class="prow"><b>Earned ' + fmtRs(t.amountPaise) + '</b><b>+' + fmtRs(t.amountPaise) + '</b></div>' +
+            '<p class="mut">Status: Earned · ' + esc(detail) + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
+        }
+        const statusLabel = t.status === "requested" ? "Pending" : t.status === "paid" ? "Complete" :
+          t.status === "rejected" ? "Rejected" : t.status;
+        return '<div class="card"><div class="prow"><b>UPI withdrawal</b><b>-' + fmtRs(Math.abs(t.amountPaise)) + '</b></div>' +
+          '<p class="mut">Status: ' + esc(statusLabel) + (t.upiId ? ' · UPI: ' + esc(t.upiId) : "") + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
       }
       function renderWallet(){
         const txns = walletTxns || [];
@@ -2677,9 +2712,10 @@
           '<div style="height:12px"></div>' +
           '<button class="btn btn-gold" id="withdrawBtn">Request withdrawal</button></div>';
         // ---------- Withdrawal history (referral money ONLY) ----------
-        // This is NOT the Razorpay "Payment history" row on Profile: it
-        // lists wallet_transactions only — referral earnings and their
-        // UPI withdrawals, each with its status.
+        // This lists wallet_transactions only — referral earnings and
+        // their UPI withdrawals, each with its status. The same rows
+        // also appear in the Payment history view, merged with the
+        // Razorpay payments.
         html += '<h3>Withdrawal history</h3>' +
           '<p class="mut">Your referral earnings and UPI withdrawals.</p>';
         if(walletTxns === null){
@@ -2687,20 +2723,7 @@
         } else if(!txns.length){
           html += '<div class="empty"><b>No withdrawals yet</b><p>Referral earnings and UPI withdrawals will appear here.</p></div>';
         } else {
-          html += txns.map(t => {
-            if(t.kind === "referral_credit"){
-              // ₹200 = Monthly first purchase, ₹500 = Yearly first purchase.
-              const plan = t.amountPaise === 20000 ? "Monthly" : t.amountPaise === 50000 ? "Yearly" : "";
-              const ref = (myReferrals || []).find(r => r.id === t.referralId);
-              const detail = "Referral reward" + (plan ? " · " + plan + " plan" : "") + (ref && ref.code ? " · Code: " + ref.code : "");
-              return '<div class="card"><div class="prow"><b>Earned ' + fmtRs(t.amountPaise) + '</b><b>+' + fmtRs(t.amountPaise) + '</b></div>' +
-                '<p class="mut">Status: Earned · ' + esc(detail) + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
-            }
-            const statusLabel = t.status === "requested" ? "Pending" : t.status === "paid" ? "Complete" :
-              t.status === "rejected" ? "Rejected" : t.status;
-            return '<div class="card"><div class="prow"><b>UPI withdrawal</b><b>-' + fmtRs(Math.abs(t.amountPaise)) + '</b></div>' +
-              '<p class="mut">Status: ' + esc(statusLabel) + (t.upiId ? ' · UPI: ' + esc(t.upiId) : "") + '<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
-          }).join("");
+          html += txns.map(walletTxnRowHtml).join("");
         }
         return html;
       }

@@ -436,10 +436,11 @@ describe("Referrals & wallet — learner website", () => {
   });
 
   it("Wallet has an explicit Withdrawal history section for referral money", () => {
-    // This is the referral-money history Rupu asked for — NOT the Razorpay
-    // "Payment history" row on Profile. Credits show as Earned ₹200/₹500
-    // with the plan (and the friend's code when known); withdrawals show
-    // their Pending/Complete/Rejected status with the UPI ID and date.
+    // This is the referral-money history on the Wallet page — the same
+    // rows also appear in the Payment history view, merged with the
+    // Razorpay payments. Credits show as Earned ₹200/₹500 with the plan
+    // (and the friend's code when known); withdrawals show their
+    // Pending/Complete/Rejected status with the UPI ID and date.
     run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:20000, createdAtMs:1000}];
       walletTxns = [
       {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
@@ -470,6 +471,90 @@ describe("Referrals & wallet — learner website", () => {
     expect(html).toContain("Withdrawal history");
     expect(html).toContain("No withdrawals yet");
     expect(html).not.toContain("Loading transactions");
+  });
+
+  it("Payment history merges Razorpay payments, referral credits and withdrawals, newest first", () => {
+    // Rupu's correction: the refer credit and the withdrawal history must
+    // show in the Payment history too — one merged list, each row labelled
+    // with its type (Payment / Earned referral credit / UPI withdrawal).
+    run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:20000, createdAtMs:1000}];
+      paymentHistory = [{id:'pay_1', userId:'u1', planId:'monthly', status:'captured', amountPaise:100000, razorpayPaymentId:'pay_1', createdAt:{seconds:3}}];
+      walletTxns = [
+      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
+      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:50000, status:'completed', upiId:'', referralId:'', createdAtMs:5000},
+      {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'requested', upiId:'new-withdrawal@okhdfcbank', createdAtMs:4000},
+      {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'paid', upiId:'old-withdrawal@okhdfcbank', createdAtMs:2000},
+    ];`);
+    const html = run("renderPaymentHistory()") as string;
+    // Razorpay payment row intact: plan, amount, type label, status, payment ID.
+    expect(html).toContain("Monthly plan");
+    expect(html).toContain("₹1,000");
+    expect(html).toContain("Payment · Status: captured");
+    expect(html).toContain("Payment ID: pay_1");
+    // Referral credits with plan + friend's code, withdrawals with status + UPI ID.
+    expect(html).toContain("Earned ₹200");
+    expect(html).toContain("Code: ABCD1234");
+    expect(html).toContain("Earned ₹500");
+    expect(html).toContain("Yearly plan");
+    expect(html).toContain("Status: Pending");
+    expect(html).toContain("Status: Complete");
+    expect(html).toContain("new-withdrawal@okhdfcbank");
+    expect(html).toContain("old-withdrawal@okhdfcbank");
+    // Newest first: credit ₹500 (5s) > withdrawal (4s) > payment (3s) > credit ₹200 (1s).
+    expect(html.indexOf("Earned ₹500")).toBeLessThan(html.indexOf("new-withdrawal@okhdfcbank"));
+    expect(html.indexOf("new-withdrawal@okhdfcbank")).toBeLessThan(html.indexOf("Payment ID: pay_1"));
+    expect(html.indexOf("Payment ID: pay_1")).toBeLessThan(html.indexOf("Earned ₹200"));
+    expect(html).not.toContain("No payments yet");
+    expect(html).not.toContain("Loading");
+  });
+
+  it("Payment history still shows Razorpay payments when the wallet list is empty", () => {
+    run(`paymentHistory = [{id:'pay_1', userId:'u1', planId:'monthly', status:'captured', amountPaise:100000, razorpayPaymentId:'pay_1', createdAt:{seconds:3}}];
+      walletTxns = [];`);
+    const html = run("renderPaymentHistory()") as string;
+    expect(html).toContain("Monthly plan");
+    expect(html).toContain("₹1,000");
+    expect(html).toContain("Payment ID: pay_1");
+    expect(html).not.toContain("No payments yet");
+    expect(html).not.toContain("Loading");
+  });
+
+  it("Payment history empty state covers payments, credits and withdrawals", () => {
+    run(`paymentHistory = []; walletTxns = [];`);
+    const html = run("renderPaymentHistory()") as string;
+    expect(html).toContain("No payments yet");
+    expect(html).toContain("Payments, referral credits and withdrawals will appear here.");
+    expect(html).not.toContain("Loading");
+  });
+
+  it("Payment history shows payments while wallet rows are still loading", () => {
+    run(`paymentHistory = [{id:'pay_1', userId:'u1', planId:'monthly', status:'captured', amountPaise:100000, razorpayPaymentId:'pay_1', createdAt:{seconds:3}}];
+      walletTxns = null;`);
+    const html = run("renderPaymentHistory()") as string;
+    expect(html).toContain("Payment ID: pay_1");
+    expect(html).toContain("Loading referral credits and withdrawals");
+    expect(html).not.toContain("No payments yet");
+  });
+
+  it("Profile Payment history row covers payments, referral earnings and withdrawals", () => {
+    const html = run("renderProfile()") as string;
+    expect(html).toContain("Payment history");
+    expect(html).toContain("Payments, referral earnings and withdrawals");
+    expect(html).not.toContain("Your Razorpay payments");
+  });
+
+  it("opening Payment history loads both payments and wallet rows and renders the merged list", async () => {
+    db.payments = [{ id: "pay_1", user_id: "u1", plan_id: "monthly", amount: 100000, status: "captured", created_at: new Date(3000).toISOString() }];
+    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 20000, status: "completed", upi_id: "", created_at: new Date(1000).toISOString() });
+    location.hash = "#/payments";
+    run("render()");
+    await flush();
+    expect(db.__selects["payments"]).toBe(1);
+    expect(db.__selects["wallet_transactions"]).toBe(1);
+    const html = document.getElementById("view")!.innerHTML;
+    expect(html).toContain("Payment ID: pay_1");
+    expect(html).toContain("Earned ₹200");
+    expect(html).not.toContain("Loading");
   });
 
   it("a failed wallet load shows the empty state, not a permanent Loading…", async () => {
