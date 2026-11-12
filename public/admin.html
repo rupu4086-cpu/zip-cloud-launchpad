@@ -236,7 +236,7 @@
 
     <section data-sec="referrals" class="hide">
       <div class="card"><h2>Referrals &amp; wallet</h2>
-        <p class="note">Referrers earn ₹150 when a referred friend buys Monthly first, ₹500 for Yearly first. Withdrawals are paid manually from your UPI app — mark a request Paid only after you have paid it.</p>
+        <p class="note">Referrers earn ₹200 when a referred friend buys Monthly first, ₹500 for Yearly first. Withdrawals are paid manually from your UPI app — mark a request Paid only after you have paid it.</p>
         <div id="referralMsg" class="msg"></div>
         <div class="actions"><button class="secondary" onclick="loadReferrals()">Reload</button></div>
         <h3>Totals</h3><div id="referralTotals"></div>
@@ -501,7 +501,7 @@ async function markReferralRewarded(id){
   if(!ref)return showMsg($("referralMsg"),"Referral not found.","err");
   const sub=referralSubs[ref.referred_id];
   if(!sub)return showMsg($("referralMsg"),"No paid plan found for this user yet — reward only after their first purchase.","err");
-  const reward=sub.plan_id==="yearly"?50000:15000;
+  const reward=sub.plan_id==="yearly"?50000:20000;
   const {error:updErr}=await supabaseClient.from("referrals").update({status:"rewarded",reward_amount_paise:reward}).eq("id",id).eq("status","pending");
   if(updErr)return showMsg($("referralMsg"),"Reward failed: "+errorText(updErr),"err");
   const {error:insErr}=await supabaseClient.from("wallet_transactions").insert({user_id:ref.referrer_id,referral_id:id,kind:"referral_credit",amount_paise:reward,status:"completed"});
