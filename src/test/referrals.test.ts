@@ -103,6 +103,21 @@ function makeSiteClient(db: any) {
       signOut: vi.fn(),
     },
     from: vi.fn((table: string) => new Query(db, table)),
+    // Simulates the SECURITY DEFINER function check_referral_milestone:
+    // pays ₹5,000 once when the referrer has >= 50 rewarded referrals
+    // and no milestone_bonus row yet; false otherwise (unknown referral,
+    // under 50, bonus already paid, or a forced failure via __failRpc).
+    rpc: vi.fn(async (fn: string, params: any) => {
+      if (fn !== "check_referral_milestone") return { data: null, error: { message: "unknown function" } };
+      if ((db as any).__failRpc) return { data: null, error: { message: "denied" } };
+      const ref = db.referrals.find((r: Row) => r.id === params.p_referral_id && r.referrer_id === params.p_referrer_id && r.status === "rewarded");
+      if (!ref) return { data: false, error: null };
+      const count = db.referrals.filter((r: Row) => r.referrer_id === params.p_referrer_id && r.status === "rewarded").length;
+      if (count < 50) return { data: false, error: null };
+      if (db.wallet_transactions.some((t: Row) => t.user_id === params.p_referrer_id && t.kind === "milestone_bonus")) return { data: false, error: null };
+      db.wallet_transactions.push({ id: `id-${db.wallet_transactions.length + 1}`, created_at: new Date().toISOString(), user_id: params.p_referrer_id, referral_id: params.p_referral_id, kind: "milestone_bonus", amount_paise: 500000, status: "completed" });
+      return { data: true, error: null };
+    }),
     channel: vi.fn(() => channel),
     removeChannel: vi.fn(),
   };
@@ -296,6 +311,7 @@ describe("Referrals & wallet — learner website", () => {
     expect(html).toContain('id="copyRefCodeBtn"');
     expect(html).toContain("₹200");
     expect(html).toContain("₹500");
+    expect(html).toContain("₹200 and ₹500 per referral");
   });
 
   it("Refer & Earn always shows the copy buttons, disabled until the code loads", () => {
@@ -634,6 +650,126 @@ describe("Referrals & wallet — learner website", () => {
     // The requested amount is now reserved: available balance drops to ₹150.
     expect(run("walletBalancePaise(walletTxns)")).toBe(15000);
   });
+
+  // Milestone bonus: ₹5,000 once at 50 rewarded referrals (Rupu, 2026-11-12).
+  const seedRewarded = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      db.referrals.push({ id: `r-seed-${i}`, code: "ABC12345", referrer_id: "ref1", referred_id: `friend-${i}`, status: "rewarded", reward_amount_paise: 20000, created_at: new Date().toISOString() });
+    }
+  };
+  const pendingReferral = () => {
+    db.referrals.push({ id: "r1", code: "ABC12345", referrer_id: "ref1", referred_id: "u1", status: "pending", created_at: new Date().toISOString() });
+  };
+
+  it("milestone constants are 50 referrals and ₹5,000, checked via the server function", () => {
+    expect(run("MILESTONE_REFERRALS")).toBe(50);
+    expect(run("MILESTONE_BONUS_PAISE")).toBe(500000);
+    expect(siteScript).toContain("maybeRewardMilestone");
+    expect(siteScript).toContain('rpc("check_referral_milestone"');
+    expect(siteScript).toContain("maybeRewardMilestone(ref.referrer_id, ref.id)");
+  });
+
+  it("no milestone bonus at 49 rewarded referrals", async () => {
+    seedRewarded(48);
+    pendingReferral();
+    await run("maybeRewardReferral('u1', 'monthly')");
+    expect(db.referrals.find((r: Row) => r.id === "r1").status).toBe("rewarded");
+    expect(db.wallet_transactions).toHaveLength(1);
+    expect(db.wallet_transactions[0]).toMatchObject({ kind: "referral_credit", amount_paise: 20000 });
+    expect(db.wallet_transactions.filter((t: Row) => t.kind === "milestone_bonus")).toHaveLength(0);
+  });
+
+  it("milestone bonus triggers exactly at the 50th rewarded referral", async () => {
+    seedRewarded(49);
+    pendingReferral();
+    await run("maybeRewardReferral('u1', 'monthly')");
+    expect(db.wallet_transactions).toHaveLength(2);
+    expect(db.wallet_transactions).toContainEqual(expect.objectContaining({
+      user_id: "ref1", referral_id: "r1", kind: "milestone_bonus",
+      amount_paise: 500000, status: "completed",
+    }));
+  });
+
+  it("no second milestone bonus at 51 rewarded referrals", async () => {
+    seedRewarded(50);
+    db.wallet_transactions.push({ id: "t-bonus", user_id: "ref1", referral_id: "r-seed-49", kind: "milestone_bonus", amount_paise: 500000, status: "completed", created_at: new Date().toISOString() });
+    pendingReferral();
+    await run("maybeRewardReferral('u1', 'monthly')");
+    expect(db.wallet_transactions.filter((t: Row) => t.kind === "milestone_bonus")).toHaveLength(1);
+    expect(db.wallet_transactions.filter((t: Row) => t.kind === "referral_credit")).toHaveLength(1);
+  });
+
+  it("a failed milestone check never blocks the per-purchase reward", async () => {
+    seedRewarded(49);
+    pendingReferral();
+    (db as any).__failRpc = true;
+    await run("maybeRewardReferral('u1', 'monthly')");
+    expect(db.referrals.find((r: Row) => r.id === "r1").status).toBe("rewarded");
+    expect(db.wallet_transactions).toHaveLength(1);
+    expect(db.wallet_transactions[0]).toMatchObject({ kind: "referral_credit", amount_paise: 20000 });
+  });
+
+  it("Refer & Earn shows X / 50 milestone progress", () => {
+    run("myReferralCode = 'ABC12345'; myReferrals = [" +
+      " {id:'r1', code:'ABC12345', referrerId:'ref1', referredId:'u2', status:'rewarded', rewardPaise:20000, createdAtMs:1000}," +
+      " {id:'r2', code:'ABC12345', referrerId:'ref1', referredId:'u3', status:'rewarded', rewardPaise:50000, createdAtMs:2000}," +
+      " {id:'r3', code:'ABC12345', referrerId:'ref1', referredId:'u4', status:'pending', rewardPaise:0, createdAtMs:3000}];");
+    const html = run("renderRefer()") as string;
+    expect(html).toContain("2 / 50");
+    expect(html).toContain("one-time ₹5,000 bonus");
+    expect(html).not.toContain("Milestone reached");
+  });
+
+  it("Refer & Earn shows the milestone as reached at 50 rewarded referrals", () => {
+    const refs = Array.from({ length: 50 }, (_, i) => ({ id: `r${i}`, code: "ABC12345", referrerId: "ref1", referredId: `u${i}`, status: "rewarded", rewardPaise: 20000, createdAtMs: 1000 + i }));
+    run(`myReferralCode = 'ABC12345'; myReferrals = ${JSON.stringify(refs)};`);
+    const html = run("renderRefer()") as string;
+    expect(html).toContain("50 / 50");
+    expect(html).toContain("Milestone reached");
+  });
+
+  it("Refer & Earn shows the Referral conditions", () => {
+    run("myReferralCode = 'ABC12345'; myReferrals = [];");
+    const html = run("renderRefer()") as string;
+    expect(html).toContain("Referral conditions");
+    expect(html).toContain("₹200 and ₹500 per referral");
+    expect(html).toContain("FIRST plan");
+    expect(html).toContain("One reward per referred friend");
+    expect(html).toContain("Self-referral does not count");
+    expect(html).toContain("₹5,000 bonus once");
+    expect(html).toContain("Withdraw any amount via UPI");
+    expect(html).toContain("invalid");
+    expect(html).not.toContain("learning purpose only");
+  });
+
+  it("Wallet history renders the milestone bonus row distinctly", () => {
+    run(`walletTxns = [
+      {id:'t1', userId:'u1', kind:'milestone_bonus', amountPaise:500000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
+      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', referralId:'r1', createdAtMs:2000},
+    ];`);
+    const html = run("renderWallet()") as string;
+    expect(html).toContain("Milestone bonus — ₹5,000");
+    expect(html).toContain("50 referrals completed");
+    expect(html).not.toContain("Earned ₹5,000");
+  });
+
+  it("Payment history shows the milestone bonus row", () => {
+    run(`paymentHistory = [];
+      walletTxns = [
+      {id:'t1', userId:'u1', kind:'milestone_bonus', amountPaise:500000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
+    ];`);
+    const html = run("renderPaymentHistory()") as string;
+    expect(html).toContain("Milestone bonus — ₹5,000");
+    expect(html).toContain("50 referrals completed");
+  });
+
+  it("total earned includes the milestone bonus", () => {
+    expect(run(`walletTotalEarnedPaise([
+      {kind:'referral_credit', amountPaise:20000, status:'completed'},
+      {kind:'milestone_bonus', amountPaise:500000, status:'completed'},
+      {kind:'withdrawal', amountPaise:-5000, status:'requested'},
+    ])`)).toBe(520000);
+  });
 });
 
 // Referral/wallet admin coverage lives in the admin-panel describe below.
@@ -648,6 +784,9 @@ describe("Referrals & wallet — admin panel", () => {
     expect(adminScript).toContain("markWithdrawalPaid");
     expect(adminScript).toContain("markWithdrawalRejected");
     expect(adminScript).toContain("markReferralRewarded");
+    expect(adminScript).toContain("maybeRewardMilestone");
+    expect(adminScript).toContain('rpc("check_referral_milestone"');
+    expect(adminScript).toContain("maybeRewardMilestone(ref.referrer_id,id)");
     expect(adminScript).toContain("reloadAll()");
     expect(adminScript).toContain('data-withdraw-pay');
     expect(adminScript).toContain('data-withdraw-reject');

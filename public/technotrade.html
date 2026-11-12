@@ -2440,9 +2440,13 @@
       // Tables: referral_codes {user_id PK, code unique}, referrals {id,
       // code, referrer_id, referred_id unique, status pending|rewarded,
       // reward_amount_paise}, wallet_transactions {id, user_id, referral_id,
-      // kind referral_credit|withdrawal, amount_paise, status
+      // kind referral_credit|withdrawal|milestone_bonus, amount_paise, status
       // completed|requested|paid|rejected, upi_id}.
       const REFERRAL_REWARD_PAISE = {monthly: 20000, yearly: 50000};
+      // Milestone bonus: a one-time ₹5,000 when a referrer completes 50
+      // rewarded referrals (Rupu, 2026-11-12).
+      const MILESTONE_REFERRALS = 50;
+      const MILESTONE_BONUS_PAISE = 500000;
       const WITHDRAW_MIN_PAISE = 10000;
       const REFERRAL_SITE_URL = "https://technoacademy.online/technotrade.html";
       function referralRewardForPlan(planId){ return planId === "yearly" ? REFERRAL_REWARD_PAISE.yearly : REFERRAL_REWARD_PAISE.monthly; }
@@ -2480,7 +2484,7 @@
         }, 0);
       }
       function walletTotalEarnedPaise(txns){
-        return (txns || []).filter(t => t.kind === "referral_credit" && t.status === "completed")
+        return (txns || []).filter(t => (t.kind === "referral_credit" || t.kind === "milestone_bonus") && t.status === "completed")
           .reduce((sum, t) => sum + (t.amountPaise || 0), 0);
       }
       function referralRow(r){
@@ -2557,7 +2561,26 @@
             user_id: ref.referrer_id, referral_id: ref.id, kind: "referral_credit",
             amount_paise: rewardPaise, status: "completed"
           });
+          await maybeRewardMilestone(ref.referrer_id, ref.id);
         }catch(e){ /* reward failure is non-fatal: the subscription is already active */ }
+      }
+      // Milestone bonus: ₹5,000 once when a referrer completes 50 rewarded
+      // referrals. The count + the insert live in the SECURITY DEFINER
+      // function check_referral_milestone — the buyer's session cannot read
+      // other users' referral rows (RLS is own-rows only), so the count
+      // cannot be done client-side. The function pays only when the count
+      // is at least 50 and no bonus exists yet for that referrer (the
+      // "at least" also self-heals a bonus missed at exactly 50, e.g. a
+      // transient failure; the exists-check is what prevents a second
+      // payment). The partial unique index wallet_milestone_bonus_once is
+      // the backstop against a double credit if two rewards land at once.
+      async function maybeRewardMilestone(referrerId, referralId){
+        if(!referrerId || !referralId) return false;
+        try{
+          const { data, error } = await supabaseClient.rpc("check_referral_milestone", {p_referrer_id: referrerId, p_referral_id: referralId});
+          if(error) return false;
+          return data === true;
+        }catch(e){ return false; }
       }
       async function loadMyReferrals(){
         if(!currentUser) return;
@@ -2587,9 +2610,11 @@
         const link = code ? referralLink(code) : "";
         const refs = myReferrals || [];
         const earned = refs.filter(r => r.status === "rewarded").reduce((s, r) => s + (r.rewardPaise || 0), 0);
+        const rewardedCount = refs.filter(r => r.status === "rewarded").length;
+        const milestoneDone = rewardedCount >= MILESTONE_REFERRALS;
         let html = subHead("Refer & Earn", "profile");
         html += '<div class="card"><div class="prow"><b>Your referral code</b><b>' + esc(code || (myReferralCodeLoaded ? "—" : "…")) + '</b></div>' +
-          '<p class="mut">Share your link — when a friend signs up with it and buys their first plan, you earn ₹200 (Monthly) or ₹500 (Yearly).</p>' +
+          '<p class="mut">Share your link — earn ₹200 and ₹500 per referral (Monthly ₹200, Yearly ₹500) when a friend buys their first plan.</p>' +
           (link ? '<p class="mut" style="word-break:break-all">' + esc(link) + '</p>' :
             (myReferralCodeLoaded ? '<p class="mut">Couldn\'t generate your link — check your connection and try again.</p><div style="margin-top:10px"><button class="btn btn-white" id="retryRefCodeBtn">Retry</button></div>' :
             '<p class="mut">Generating your link…</p>')) +
@@ -2597,7 +2622,19 @@
           '<button class="btn btn-white" id="copyRefCodeBtn"' + (code ? "" : " disabled") + '>Copy code</button></div>' +
           '</div>';
         html += '<div class="card"><div class="prow"><b>Friends referred</b><b>' + refs.length + '</b></div>' +
+          '<div class="prow"><b>Rewarded referrals</b><b>' + rewardedCount + ' / ' + MILESTONE_REFERRALS + '</b></div>' +
+          '<p class="mut">' + (milestoneDone ? "Milestone reached — your ₹5,000 bonus is in your Wallet." : "Complete 50 rewarded referrals to earn a one-time ₹5,000 bonus.") + '</p>' +
           '<div class="prow"><b>Total earned</b><b>' + fmtRs(earned) + '</b></div></div>';
+        // Referral conditions (plain English, short bullets).
+        html += '<div class="card"><b>Referral conditions</b>' +
+          '<ul class="mut">' +
+          '<li>You earn only when your friend buys their FIRST plan — ₹200 and ₹500 per referral (Monthly ₹200, Yearly ₹500).</li>' +
+          '<li>One reward per referred friend (their first purchase only; renewals do not pay again).</li>' +
+          '<li>Self-referral does not count — you cannot use your own code on your own account.</li>' +
+          '<li>₹5,000 bonus once when you complete 50 rewarded referrals.</li>' +
+          '<li>Rewards go to your Wallet. Withdraw any amount via UPI — payouts are made manually by the admin and marked Paid, so a request shows Pending until then (Complete when paid, Rejected if declined).</li>' +
+          '<li>If the code is invalid, signup still works — it just does not attach a referral.</li>' +
+          '</ul></div>';
         if(myReferrals === null){
           html += '<div class="loading">Loading referrals…</div>';
         } else if(!refs.length){
@@ -2682,6 +2719,12 @@
       // One wallet-transaction row, shared by the Wallet page's Withdrawal
       // history and the Payment history view (both show the same rows).
       function walletTxnRowHtml(t){
+        if(t.kind === "milestone_bonus"){
+          // One-time ₹5,000 for completing 50 rewarded referrals — never
+          // rendered as a plan credit (500000 maps to no plan).
+          return '<div class="card"><div class="prow"><b>Milestone bonus — ₹5,000</b><b>+' + fmtRs(t.amountPaise) + '</b></div>' +
+            '<p class="mut">Status: Earned · 50 referrals completed<br>' + fmtDateTime(t.createdAtMs) + '</p></div>';
+        }
         if(t.kind === "referral_credit"){
           // ₹200 = Monthly first purchase, ₹500 = Yearly first purchase.
           const plan = t.amountPaise === 20000 ? "Monthly" : t.amountPaise === 50000 ? "Yearly" : "";

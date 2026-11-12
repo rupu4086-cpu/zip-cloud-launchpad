@@ -23,6 +23,8 @@ function makeClient() {
       signOut: vi.fn(),
     },
     from: vi.fn((_table: string) => query),
+    // Default milestone check: no bonus. Milestone tests override it.
+    rpc: vi.fn(async () => ({ data: false, error: null })),
     channel: vi.fn(),
     removeChannel: vi.fn(),
   };
@@ -308,5 +310,58 @@ describe("Admin subscriptions queries (no created_at column)", () => {
     expect(document.getElementById("cSubs")?.textContent).toBe("1");
     expect(document.getElementById("cPending")?.textContent).toBe("1");
     expect(document.getElementById("globalMsg")?.textContent ?? "").not.toContain("Dashboard failed");
+  });
+});
+
+describe("Admin milestone bonus — ₹5,000 at 50 rewarded referrals", () => {
+  let run: (code: string) => unknown;
+  let client: ReturnType<typeof makeClient>["client"];
+
+  beforeEach(() => {
+    document.body.innerHTML = html.split("<body>")[1]?.split("<script>")[0] ?? "";
+    const mock = makeClient();
+    client = mock.client;
+    Object.assign(window, { supabase: { createClient: () => client } });
+    if (!script) throw new Error("Admin script missing");
+    run = new Function(`${script}\nreturn code => eval(code);`)();
+  });
+
+  function mockRewardTables() {
+    client.from.mockImplementation((table: string) => {
+      if (table === "referrals") return {
+        update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+      } as never;
+      if (table === "wallet_transactions") return {
+        insert: vi.fn(async () => ({ error: null })),
+      } as never;
+      return makeClient().query as never;
+    });
+  }
+
+  function seedPending() {
+    run(`referralRows = [{id:'ref-1', code:'QHL8LFM8', referrer_id:'ref-user', referred_id:'buyer-user', status:'pending', reward_amount_paise:0, created_at:'2026-11-12T00:00:00Z'}];
+      referralSubs = {'buyer-user': {user_id:'buyer-user', plan_id:'monthly', status:'active', expires_at:'2026-12-12T00:00:00Z'}};
+      referralUsers = {'ref-user': {id:'ref-user', email:'ref@example.com', display_name:'Ref'}, 'buyer-user': {id:'buyer-user', email:'buyer@example.com', display_name:'Buyer'}};
+      loadReferrals = async () => {};`);
+  }
+
+  it("calls the milestone check and reports the bonus when it pays", async () => {
+    mockRewardTables();
+    seedPending();
+    client.rpc.mockResolvedValue({ data: true, error: null });
+    await run("markReferralRewarded('ref-1')");
+    expect(client.rpc).toHaveBeenCalledWith("check_referral_milestone", { p_referrer_id: "ref-user", p_referral_id: "ref-1" });
+    expect(document.getElementById("referralMsg")?.textContent ?? "").toContain("Milestone bonus ₹5,000");
+  });
+
+  it("still rewards without the bonus when the milestone check says no", async () => {
+    mockRewardTables();
+    seedPending();
+    client.rpc.mockResolvedValue({ data: false, error: null });
+    await run("markReferralRewarded('ref-1')");
+    expect(client.rpc).toHaveBeenCalledWith("check_referral_milestone", { p_referrer_id: "ref-user", p_referral_id: "ref-1" });
+    const msg = document.getElementById("referralMsg")?.textContent ?? "";
+    expect(msg).toContain("Rewarded ₹200");
+    expect(msg).not.toContain("Milestone bonus");
   });
 });

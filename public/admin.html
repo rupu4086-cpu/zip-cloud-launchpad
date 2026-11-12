@@ -577,6 +577,18 @@ async function markWithdrawalRejected(id){
   if(error)return showMsg($("referralMsg"),"Reject failed: "+errorText(error),"err");
   await loadReferrals();showMsg($("referralMsg"),"Withdrawal rejected — the amount is back in the user's balance.","ok");
 }
+// Milestone bonus: ₹5,000 once at 50 rewarded referrals. Same SECURITY
+// DEFINER function as the site path (see technotrade.html): the count +
+// the insert run server-side, so concurrent rewards cannot double-pay
+// (the partial unique index wallet_milestone_bonus_once is the backstop).
+async function maybeRewardMilestone(referrerId, referralId){
+  if(!referrerId || !referralId) return false;
+  try{
+    const { data, error } = await supabaseClient.rpc("check_referral_milestone", {p_referrer_id: referrerId, p_referral_id: referralId});
+    if(error) return false;
+    return data === true;
+  }catch(e){ return false; }
+}
 // Covers first purchases confirmed manually in the Payments tab (the site
 // rewards automatically only when its own checkout flow activates the plan).
 async function markReferralRewarded(id){
@@ -589,7 +601,8 @@ async function markReferralRewarded(id){
   if(updErr)return showMsg($("referralMsg"),"Reward failed: "+errorText(updErr),"err");
   const {error:insErr}=await supabaseClient.from("wallet_transactions").insert({user_id:ref.referrer_id,referral_id:id,kind:"referral_credit",amount_paise:reward,status:"completed"});
   if(insErr)return showMsg($("referralMsg"),"Reward saved but wallet credit failed: "+errorText(insErr),"err");
-  await loadReferrals();showMsg($("referralMsg"),"Rewarded "+fmtRs(reward/100)+" to "+referralUserLabel(ref.referrer_id)+".","ok");
+  const bonus=await maybeRewardMilestone(ref.referrer_id,id);
+  await loadReferrals();showMsg($("referralMsg"),"Rewarded "+fmtRs(reward/100)+" to "+referralUserLabel(ref.referrer_id)+(bonus?". Milestone bonus ₹5,000 also credited (50 referrals).":""),"ok");
 }
 
 function stopLive(){if(liveChannel){supabaseClient.removeChannel(liveChannel);liveChannel=null;}}
