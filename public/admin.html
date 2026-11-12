@@ -132,6 +132,18 @@
       </div>
     </section>
 
+    <section data-sec="users" class="hide">
+      <div class="card"><h2>Users</h2>
+        <p class="note">Every account that signed up on the website — newest signups appear here automatically. The full account ID is shown for each user; copy it when you need it (for example to check a payment or a referral).</p>
+        <div id="userMsg" class="msg"></div>
+        <div class="actions"><button class="secondary" onclick="loadUsers()">Reload</button></div>
+        <label for="userSearch">Search by email, name or ID</label>
+        <input id="userSearch" placeholder="Search users…" autocomplete="off" oninput="renderUsers()">
+        <p class="mut" id="userTotal"></p>
+        <div id="userList"></div>
+      </div>
+    </section>
+
     <section data-sec="courses" class="hide">
       <div class="card"><h2>Courses</h2>
         <p class="note">Only courses saved here appear on the learner website. No sample courses are created.</p>
@@ -299,13 +311,13 @@ async function refreshAccess(){
 supabaseClient.auth.onAuthStateChange(event=>{if(event==="SIGNED_IN"||event==="SIGNED_OUT"||event==="USER_UPDATED"||event==="INITIAL_SESSION")refreshAccess();});
 refreshAccess();
 
-const TABS=[["dashboard","Dashboard"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"],["support","Support"],["referrals","Referrals"]];
+const TABS=[["dashboard","Dashboard"],["users","Users"],["courses","Courses"],["categories","Categories"],["razorpay","Razorpay"],["payments","Payments"],["notifications","Notifications"],["support","Support"],["referrals","Referrals"]];
 let activeTab="dashboard";
 function buildTabs(){$("tabs").innerHTML=TABS.map(([id,label])=>'<button data-tab="'+id+'" class="'+(id===activeTab?"active":"")+'" onclick="showTab(\''+id+'\')">'+label+"</button>").join("");}
 function showTab(id){activeTab=id;document.querySelectorAll("#tabs button").forEach(button=>button.classList.toggle("active",button.dataset.tab===id));document.querySelectorAll("#app section").forEach(section=>section.classList.toggle("hide",section.dataset.sec!==id));}
 buildTabs();
 
-async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications(),loadSupport(),loadReferrals()]);}
+async function reloadAll(){if(!isAdmin)return;await Promise.all([loadDashboard(),loadUsers(),loadCourses(),loadCategories(),loadRazorpay(),loadPayments(),loadNotifications(),loadSupport(),loadReferrals()]);}
 async function loadDashboard(){
   try{
     const [courses,lessons,users,subs,payments]=await Promise.all([
@@ -437,6 +449,63 @@ async function sendSupportReply(){
   showMsg($("supportMsg"),"Reply sent.","ok");
 }
 
+let userRows=[], userSubs={};
+// Reads the live users table, so every new signup appears here with no
+// manual step. The admin session can read all rows: the live DB has the
+// "Admins can read all learner profiles" policy on public.users (same
+// plain select the Support/Payments/Referrals tabs already use).
+async function loadUsers(){
+  if(!isAdmin)return;
+  const [{data:users,error:userError},{data:subs,error:subError}]=await Promise.all([
+    supabaseClient.from("users").select("id,email,display_name").order("email"),
+    supabaseClient.from("subscriptions").select("user_id,plan_id,status,expires_at")
+  ]);
+  if(userError)return showMsg($("userMsg"),"Could not load users: "+errorText(userError),"err");
+  if(subError)return showMsg($("userMsg"),"Could not load subscriptions: "+errorText(subError),"err");
+  userRows=users||[];
+  userSubs={};
+  (subs||[]).forEach(sub=>{if(!userSubs[sub.user_id])userSubs[sub.user_id]=sub;});
+  renderUsers();
+}
+function userSubscriptionLabel(userId){
+  const sub=userSubs[userId];
+  if(!sub)return "No subscription";
+  const plan=sub.plan_id==="yearly"?"Yearly":"Monthly";
+  if(sub.status==="active"&&sub.expires_at&&new Date(sub.expires_at).getTime()>Date.now())return "Active · "+plan+" · until "+fmtDate(sub.expires_at);
+  return (sub.status||"—")+" · "+plan;
+}
+function renderUsers(){
+  const q=($("userSearch").value||"").trim().toLowerCase();
+  const rows=userRows.filter(user=>!q||String(user.email||"").toLowerCase().includes(q)||String(user.display_name||"").toLowerCase().includes(q)||String(user.id||"").toLowerCase().includes(q));
+  $("userTotal").textContent=rows.length+" user"+(rows.length===1?"":"s")+(q?' matching "'+q+'"':"");
+  $("userList").innerHTML=rows.map(user=>{
+    const sub=userSubs[user.id];
+    const active=sub&&sub.status==="active"&&sub.expires_at&&new Date(sub.expires_at).getTime()>Date.now();
+    const pill=active?"green":(sub?"amber":"grey");
+    return '<div class="item"><h4>'+esc(user.display_name||user.email||user.id)+'</h4>'+
+      '<p class="mut">'+esc(user.email||"—")+'</p>'+
+      '<p class="mut">ID: <code>'+esc(user.id)+'</code></p>'+
+      '<p class="mut">Subscription: <span class="pill '+pill+'">'+esc(userSubscriptionLabel(user.id))+'</span></p>'+
+      '<div class="actions"><button class="secondary" data-copy-user-id="'+esc(user.id)+'">Copy ID</button></div></div>';
+  }).join("")||'<p class="mut">No users yet.</p>';
+}
+$("userList").addEventListener("click",event=>{
+  const button=event.target.closest("button[data-copy-user-id]");
+  if(button)copyUserId(button);
+});
+async function copyUserId(button){
+  const id=button.dataset.copyUserId||"";
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(id);}
+    else{
+      const ta=document.createElement("textarea");
+      ta.value=id;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();
+    }
+    button.textContent="Copied!";
+    setTimeout(()=>{button.textContent="Copy ID";},1500);
+  }catch(e){showMsg($("userMsg"),"Copy failed — select the ID and copy it manually.","err");}
+}
+
 let referralRows=[],withdrawalRows=[],referralUsers={},referralSubs={};
 async function loadReferrals(){
   if(!isAdmin)return;
@@ -510,7 +579,7 @@ async function markReferralRewarded(id){
 }
 
 function stopLive(){if(liveChannel){supabaseClient.removeChannel(liveChannel);liveChannel=null;}}
-function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).on("postgres_changes",{event:"*",schema:"public",table:"home_categories"},()=>loadCategories()).on("postgres_changes",{event:"*",schema:"public",table:"support_messages"},()=>loadSupport()).subscribe();}
+function startLive(){stopLive();liveChannel=supabaseClient.channel("tt-admin-"+Date.now()).on("postgres_changes",{event:"*",schema:"public",table:"courses"},()=>{loadCourses();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>{loadLessons();loadDashboard();}).on("postgres_changes",{event:"*",schema:"public",table:"subscriptions"},()=>loadDashboard()).on("postgres_changes",{event:"*",schema:"public",table:"admin_notifications"},()=>loadNotifications()).on("postgres_changes",{event:"*",schema:"public",table:"home_categories"},()=>loadCategories()).on("postgres_changes",{event:"*",schema:"public",table:"support_messages"},()=>loadSupport()).on("postgres_changes",{event:"*",schema:"public",table:"users"},()=>loadUsers()).subscribe();}
 </script>
 </body>
 </html>

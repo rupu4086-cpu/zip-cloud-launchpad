@@ -105,3 +105,91 @@ describe("Hosted admin panel", () => {
     expect(insert).not.toHaveBeenCalled();
   });
 });
+
+describe("Admin Users tab", () => {
+  let run: (code: string) => unknown;
+  let client: ReturnType<typeof makeClient>["client"];
+
+  const users = [
+    { id: "11111111-2222-3333-4444-555555555555", email: "aasha@example.com", display_name: "Aasha" },
+    { id: "99999999-8888-7777-6666-555555555555", email: "bikash@example.com", display_name: null },
+  ];
+  const subs = [
+    { user_id: users[0]!.id, plan_id: "monthly", status: "active", expires_at: new Date(Date.now() + 86400000).toISOString() },
+  ];
+
+  function mockUsers(userData: unknown[], subData: unknown[]) {
+    client.from.mockImplementation((table: string) => {
+      if (table === "users") return { select: () => ({ order: async () => ({ data: userData, error: null }) }) } as never;
+      if (table === "subscriptions") return { select: async () => ({ data: subData, error: null }) } as never;
+      return makeClient().query as never;
+    });
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = html.split("<body>")[1]?.split("<script>")[0] ?? "";
+    const mock = makeClient();
+    client = mock.client;
+    Object.assign(window, { supabase: { createClient: () => client } });
+    if (!script) throw new Error("Admin script missing");
+    run = new Function(`${script}\nreturn code => eval(code);`)();
+  });
+
+  it("lists every user with their full ID, email, name and subscription status", async () => {
+    mockUsers(users, subs);
+    await run("isAdmin=true");
+    await run("loadUsers()");
+    const list = document.getElementById("userList")?.innerHTML ?? "";
+    expect(list).toContain("11111111-2222-3333-4444-555555555555");
+    expect(list).toContain("99999999-8888-7777-6666-555555555555");
+    expect(list).toContain("aasha@example.com");
+    expect(list).toContain("bikash@example.com");
+    expect(list).toContain("Aasha");
+    expect(list).toContain("Active");
+    expect(list).toContain("Monthly");
+    expect(list).toContain("No subscription");
+    expect(document.getElementById("userTotal")?.textContent).toBe("2 users");
+    expect(document.querySelector('[data-tab="users"]')?.textContent).toBe("Users");
+  });
+
+  it("shows the Users section when its tab is opened", async () => {
+    await run("showTab('users')");
+    const section = document.querySelector('section[data-sec="users"]');
+    expect(section?.classList.contains("hide")).toBe(false);
+    expect(document.querySelector('section[data-sec="dashboard"]')?.classList.contains("hide")).toBe(true);
+  });
+
+  it("copies the full user ID when the copy button is used", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(window.navigator, "clipboard", { value: { writeText }, configurable: true });
+    mockUsers(users, subs);
+    await run("isAdmin=true");
+    await run("loadUsers()");
+    const button = document.querySelector('[data-copy-user-id="11111111-2222-3333-4444-555555555555"]') as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    await run("copyUserId(document.querySelector('[data-copy-user-id=\"11111111-2222-3333-4444-555555555555\"]'))");
+    expect(writeText).toHaveBeenCalledWith("11111111-2222-3333-4444-555555555555");
+    expect(button.textContent).toBe("Copied!");
+  });
+
+  it("narrows the list with the search box", async () => {
+    mockUsers(users, subs);
+    await run("isAdmin=true");
+    await run("loadUsers()");
+    (document.getElementById("userSearch") as HTMLInputElement).value = "bikash";
+    await run("renderUsers()");
+    const list = document.getElementById("userList")?.innerHTML ?? "";
+    expect(list).toContain("bikash@example.com");
+    expect(list).not.toContain("aasha@example.com");
+    expect(document.getElementById("userTotal")?.textContent).toBe('1 user matching "bikash"');
+  });
+
+  it("shows an empty state, not a spinner, when there are no users", async () => {
+    mockUsers([], []);
+    await run("isAdmin=true");
+    await run("loadUsers()");
+    const list = document.getElementById("userList")?.innerHTML ?? "";
+    expect(list).toContain("No users yet.");
+    expect(list).not.toMatch(/loading/i);
+  });
+});
