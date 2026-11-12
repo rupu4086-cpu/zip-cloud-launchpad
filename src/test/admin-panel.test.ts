@@ -193,3 +193,120 @@ describe("Admin Users tab", () => {
     expect(list).not.toMatch(/loading/i);
   });
 });
+
+describe("Admin subscriptions queries (no created_at column)", () => {
+  let run: (code: string) => unknown;
+  let client: ReturnType<typeof makeClient>["client"];
+
+  beforeEach(() => {
+    document.body.innerHTML = html.split("<body>")[1]?.split("<script>")[0] ?? "";
+    const mock = makeClient();
+    client = mock.client;
+    Object.assign(window, { supabase: { createClient: () => client } });
+    if (!script) throw new Error("Admin script missing");
+    run = new Function(`${script}\nreturn code => eval(code);`)();
+  });
+
+  it("never selects or orders subscriptions by created_at (the column does not exist)", () => {
+    expect(script).not.toContain('select("user_id,plan_id,created_at")');
+    const subQueries = [...(script ?? "").matchAll(/from\("subscriptions"\)\.select\("([^"]*)"\)/g)];
+    expect(subQueries.length).toBeGreaterThan(0);
+    for (const [, cols] of subQueries) expect(cols).not.toContain("created_at");
+    const subOrders = [...(script ?? "").matchAll(/from\("subscriptions"\)\.select\("[^"]*"\)\.order\("([^"]*)"/g)];
+    for (const [, col] of subOrders) expect(col).not.toBe("created_at");
+    expect(script).toContain('select("user_id,plan_id,status,expires_at")');
+  });
+
+  it("loads the Referrals tab when subscription rows have no created_at field", async () => {
+    const userId = "11111111-2222-3333-4444-555555555555";
+    const referrerId = "99999999-8888-7777-6666-555555555555";
+    const refs = [
+      { id: "ref-1", code: "QHL8LFM8", referrer_id: referrerId, referred_id: userId, status: "pending", reward_amount_paise: 0, created_at: "2026-11-12T00:00:00Z" },
+    ];
+    const subs = [
+      { user_id: userId, plan_id: "monthly", status: "active", expires_at: new Date(Date.now() + 30 * 86400000).toISOString() },
+    ];
+    const selectSubs = vi.fn(() => ({ order: async () => ({ data: subs, error: null }) }));
+    const chain = (data: unknown[]) => {
+      const q: any = {
+        order: () => ({ limit: async () => ({ data, error: null }) }),
+        limit: async () => ({ data, error: null }),
+      };
+      q.eq = () => q;
+      return q;
+    };
+    client.from.mockImplementation((table: string) => {
+      if (table === "referrals") return { select: () => chain(refs) } as never;
+      if (table === "wallet_transactions") return { select: () => chain([]) } as never;
+      if (table === "users") return {
+        select: async () => ({
+          data: [
+            { id: userId, email: "aasha@example.com", display_name: "Aasha" },
+            { id: referrerId, email: "rupu@example.com", display_name: "Rupu" },
+          ],
+          error: null,
+        }),
+      } as never;
+      if (table === "subscriptions") return { select: selectSubs } as never;
+      return makeClient().query as never;
+    });
+    await run("isAdmin=true");
+    await run("loadReferrals()");
+    expect(selectSubs).toHaveBeenCalledWith("user_id,plan_id,status,expires_at");
+    expect(document.getElementById("referralTotals")?.innerHTML ?? "").toContain("Referrals: 1");
+    const list = document.getElementById("referralList")?.innerHTML ?? "";
+    expect(list).toContain("Monthly");
+    expect(list).toContain("Mark rewarded");
+    expect(document.getElementById("referralMsg")?.textContent ?? "").not.toContain("Could not load subscriptions");
+  });
+
+  it("shows the live plan when a user has both an expired and an active subscription row", async () => {
+    const userId = "11111111-2222-3333-4444-555555555555";
+    const users = [{ id: userId, email: "aasha@example.com", display_name: "Aasha" }];
+    const subs = [
+      { user_id: userId, plan_id: "yearly", status: "expired", expires_at: new Date(Date.now() - 86400000).toISOString() },
+      { user_id: userId, plan_id: "monthly", status: "active", expires_at: new Date(Date.now() + 30 * 86400000).toISOString() },
+    ];
+    client.from.mockImplementation((table: string) => {
+      if (table === "users") return { select: () => ({ order: async () => ({ data: users, error: null }) }) } as never;
+      if (table === "subscriptions") return { select: async () => ({ data: subs, error: null }) } as never;
+      return makeClient().query as never;
+    });
+    await run("isAdmin=true");
+    await run("loadUsers()");
+    const list = document.getElementById("userList")?.innerHTML ?? "";
+    expect(list).toContain("Active");
+    expect(list).toContain("Monthly");
+    expect(list).not.toContain("No subscription");
+  });
+
+  it("loads Dashboard totals when subscription rows have no created_at field", async () => {
+    const future = new Date(Date.now() + 30 * 86400000).toISOString();
+    const past = new Date(Date.now() - 86400000).toISOString();
+    const result = (data: unknown[]) => ({ data, error: null });
+    const chain = (data: unknown[]) => ({ order: () => ({ limit: async () => result(data) }) });
+    client.from.mockImplementation((table: string) => {
+      if (table === "courses") return { select: async () => result([{}, {}, {}]) } as never;
+      if (table === "lessons") return { select: async () => result([{}, {}]) } as never;
+      if (table === "users") return { select: async () => result([{}, {}]) } as never;
+      if (table === "subscriptions") return {
+        select: async () => result([
+          { user_id: "u1", status: "active", expires_at: future },
+          { user_id: "u2", status: "active", expires_at: past },
+          { user_id: "u3", status: "cancelled", expires_at: future },
+        ]),
+      } as never;
+      if (table === "payments") return {
+        select: () => chain([{ id: "pay_1", amount: 100000, plan_id: "monthly", status: "captured", created_at: "2026-11-12T00:00:00Z" }]),
+      } as never;
+      return makeClient().query as never;
+    });
+    await run("loadDashboard()");
+    expect(document.getElementById("cCourses")?.textContent).toBe("3");
+    expect(document.getElementById("cLessons")?.textContent).toBe("2");
+    expect(document.getElementById("cUsers")?.textContent).toBe("2");
+    expect(document.getElementById("cSubs")?.textContent).toBe("1");
+    expect(document.getElementById("cPending")?.textContent).toBe("1");
+    expect(document.getElementById("globalMsg")?.textContent ?? "").not.toContain("Dashboard failed");
+  });
+});

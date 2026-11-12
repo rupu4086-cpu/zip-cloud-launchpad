@@ -454,6 +454,22 @@ let userRows=[], userSubs={};
 // manual step. The admin session can read all rows: the live DB has the
 // "Admins can read all learner profiles" policy on public.users (same
 // plain select the Support/Payments/Referrals tabs already use).
+// subscriptions has no created_at and no id — only user_id, plan_id, status,
+// expires_at. One user can hold several rows (an old expired plan plus a
+// live one), so pick the best row per user: an active, unexpired plan first,
+// otherwise the latest-expiring row. Never rely on DB row order.
+function indexSubsByUser(subs){
+  const now=Date.now(),byUser={};
+  const score=sub=>{
+    const live=sub.status==="active"&&sub.expires_at&&new Date(sub.expires_at).getTime()>now;
+    return (live?1e15:0)+(sub.expires_at?new Date(sub.expires_at).getTime():0);
+  };
+  (subs||[]).forEach(sub=>{
+    if(!sub||!sub.user_id)return;
+    if(!byUser[sub.user_id]||score(sub)>score(byUser[sub.user_id]))byUser[sub.user_id]=sub;
+  });
+  return byUser;
+}
 async function loadUsers(){
   if(!isAdmin)return;
   const [{data:users,error:userError},{data:subs,error:subError}]=await Promise.all([
@@ -463,8 +479,7 @@ async function loadUsers(){
   if(userError)return showMsg($("userMsg"),"Could not load users: "+errorText(userError),"err");
   if(subError)return showMsg($("userMsg"),"Could not load subscriptions: "+errorText(subError),"err");
   userRows=users||[];
-  userSubs={};
-  (subs||[]).forEach(sub=>{if(!userSubs[sub.user_id])userSubs[sub.user_id]=sub;});
+  userSubs=indexSubsByUser(subs);
   renderUsers();
 }
 function userSubscriptionLabel(userId){
@@ -513,7 +528,7 @@ async function loadReferrals(){
     supabaseClient.from("referrals").select("*").order("created_at",{ascending:false}).limit(100),
     supabaseClient.from("wallet_transactions").select("*").eq("kind","withdrawal").order("created_at",{ascending:false}).limit(100),
     supabaseClient.from("users").select("id,email,display_name"),
-    supabaseClient.from("subscriptions").select("user_id,plan_id,created_at").order("created_at",{ascending:true})
+    supabaseClient.from("subscriptions").select("user_id,plan_id,status,expires_at").order("expires_at",{ascending:false})
   ]);
   if(refError)return showMsg($("referralMsg"),"Could not load referrals: "+errorText(refError),"err");
   if(txnError)return showMsg($("referralMsg"),"Could not load withdrawals: "+errorText(txnError),"err");
@@ -521,8 +536,7 @@ async function loadReferrals(){
   if(subError)return showMsg($("referralMsg"),"Could not load subscriptions: "+errorText(subError),"err");
   referralRows=refs||[];withdrawalRows=txns||[];
   referralUsers=Object.fromEntries((users||[]).map(user=>[user.id,user]));
-  referralSubs={};
-  (subs||[]).forEach(s=>{if(!referralSubs[s.user_id])referralSubs[s.user_id]=s;});
+  referralSubs=indexSubsByUser(subs);
   renderReferrals();
 }
 function referralUserLabel(userId){const user=referralUsers[userId];return user?(user.display_name||user.email||userId):userId;}
