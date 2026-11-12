@@ -594,13 +594,28 @@ async function maybeRewardMilestone(referrerId, referralId){
 async function markReferralRewarded(id){
   const ref=referralRows.find(r=>r.id===id);
   if(!ref)return showMsg($("referralMsg"),"Referral not found.","err");
+  // Idempotency guard 1: already rewarded in the local list (e.g. a second
+  // tap after loadReferrals re-rendered) — touch nothing.
+  if(ref.status==="rewarded")return showMsg($("referralMsg"),"Already rewarded.","ok");
   const sub=referralSubs[ref.referred_id];
   if(!sub)return showMsg($("referralMsg"),"No paid plan found for this user yet — reward only after their first purchase.","err");
   const reward=sub.plan_id==="yearly"?50000:20000;
-  const {error:updErr}=await supabaseClient.from("referrals").update({status:"rewarded",reward_amount_paise:reward}).eq("id",id).eq("status","pending");
+  // Idempotency guard 2: the update is guarded on status="pending" and
+  // returns the updated rows. A 0-row update means another run already
+  // rewarded this referral (double-tap race) — stop, do not insert credit.
+  const {data:updRows,error:updErr}=await supabaseClient.from("referrals").update({status:"rewarded",reward_amount_paise:reward}).eq("id",id).eq("status","pending").select();
   if(updErr)return showMsg($("referralMsg"),"Reward failed: "+errorText(updErr),"err");
+  if(!updRows||updRows.length===0)return showMsg($("referralMsg"),"Already rewarded.","ok");
   const {error:insErr}=await supabaseClient.from("wallet_transactions").insert({user_id:ref.referrer_id,referral_id:id,kind:"referral_credit",amount_paise:reward,status:"completed"});
-  if(insErr)return showMsg($("referralMsg"),"Reward saved but wallet credit failed: "+errorText(insErr),"err");
+  if(insErr){
+    // Idempotency guard 3: the partial unique index wallet_credit_once
+    // already has this credit (the first run inserted it) — the money is
+    // safe, so report success instead of a red duplicate-key error.
+    if(insErr.code==="23505"||String(insErr.message||"").includes("duplicate key")){
+      await loadReferrals();return showMsg($("referralMsg"),"Already credited "+fmtRs(reward/100)+" to "+referralUserLabel(ref.referrer_id)+".","ok");
+    }
+    return showMsg($("referralMsg"),"Reward saved but wallet credit failed: "+errorText(insErr),"err");
+  }
   const bonus=await maybeRewardMilestone(ref.referrer_id,id);
   await loadReferrals();showMsg($("referralMsg"),"Rewarded "+fmtRs(reward/100)+" to "+referralUserLabel(ref.referrer_id)+(bonus?". Milestone bonus ₹5,000 also credited (50 referrals).":""),"ok");
 }

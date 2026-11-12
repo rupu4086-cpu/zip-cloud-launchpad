@@ -329,7 +329,7 @@ describe("Admin milestone bonus — ₹5,000 at 50 rewarded referrals", () => {
   function mockRewardTables() {
     client.from.mockImplementation((table: string) => {
       if (table === "referrals") return {
-        update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+        update: () => ({ eq: () => ({ eq: () => ({ select: async () => ({ data: [{ id: "ref-1" }], error: null }) }) }) }),
       } as never;
       if (table === "wallet_transactions") return {
         insert: vi.fn(async () => ({ error: null })),
@@ -363,5 +363,89 @@ describe("Admin milestone bonus — ₹5,000 at 50 rewarded referrals", () => {
     const msg = document.getElementById("referralMsg")?.textContent ?? "";
     expect(msg).toContain("Rewarded ₹200");
     expect(msg).not.toContain("Milestone bonus");
+  });
+});
+
+describe("Admin Mark rewarded is idempotent (no double credit)", () => {
+  let run: (code: string) => unknown;
+  let client: ReturnType<typeof makeClient>["client"];
+
+  beforeEach(() => {
+    document.body.innerHTML = html.split("<body>")[1]?.split("<script>")[0] ?? "";
+    const mock = makeClient();
+    client = mock.client;
+    Object.assign(window, { supabase: { createClient: () => client } });
+    if (!script) throw new Error("Admin script missing");
+    run = new Function(`${script}\nreturn code => eval(code);`)();
+  });
+
+  function seedRow(status: string) {
+    run(`referralRows = [{id:'ref-1', code:'QHL8LFM8', referrer_id:'ref-user', referred_id:'buyer-user', status:'${status}', reward_amount_paise:0, created_at:'2026-11-12T00:00:00Z'}];
+      referralSubs = {'buyer-user': {user_id:'buyer-user', plan_id:'monthly', status:'active', expires_at:'2026-12-12T00:00:00Z'}};
+      referralUsers = {'ref-user': {id:'ref-user', email:'ref@example.com', display_name:'Ref'}, 'buyer-user': {id:'buyer-user', email:'buyer@example.com', display_name:'Buyer'}};
+      loadReferrals = async () => {};`);
+  }
+
+  function mockRewardTables(updatedRows: unknown[], insertResult: { error: unknown }) {
+    const insert = vi.fn(async () => insertResult);
+    client.from.mockImplementation((table: string) => {
+      if (table === "referrals") return {
+        update: () => ({ eq: () => ({ eq: () => ({ select: async () => ({ data: updatedRows, error: null }) }) }) }),
+      } as never;
+      if (table === "wallet_transactions") return { insert } as never;
+      return makeClient().query as never;
+    });
+    return { insert };
+  }
+
+  it("does not touch the DB when the referral is already rewarded locally", async () => {
+    const { insert } = mockRewardTables([{ id: "ref-1" }], { error: null });
+    seedRow("rewarded");
+    await run("markReferralRewarded('ref-1')");
+    expect(insert).not.toHaveBeenCalled();
+    expect(document.getElementById("referralMsg")?.textContent ?? "").toContain("Already rewarded");
+  });
+
+  it("stops without inserting when the guarded update matches 0 rows (double-tap race)", async () => {
+    const { insert } = mockRewardTables([], { error: null });
+    seedRow("pending");
+    await run("markReferralRewarded('ref-1')");
+    expect(insert).not.toHaveBeenCalled();
+    expect(document.getElementById("referralMsg")?.textContent ?? "").toContain("Already rewarded");
+  });
+
+  it("reports success, not an error, when the credit insert hits the 23505 duplicate key", async () => {
+    const { insert } = mockRewardTables([{ id: "ref-1" }], {
+      error: { code: "23505", message: 'duplicate key value violates unique constraint "wallet_credit_once"' },
+    });
+    seedRow("pending");
+    await run("markReferralRewarded('ref-1')");
+    expect(insert).toHaveBeenCalledTimes(1);
+    const msg = document.getElementById("referralMsg")?.textContent ?? "";
+    expect(msg).toContain("Already credited ₹200");
+    expect(msg).not.toContain("failed");
+  });
+
+  it("also treats a duplicate-key message without a code as already credited", async () => {
+    const { insert } = mockRewardTables([{ id: "ref-1" }], {
+      error: { message: 'duplicate key value violates unique constraint "wallet_credit_once"' },
+    });
+    seedRow("pending");
+    await run("markReferralRewarded('ref-1')");
+    expect(insert).toHaveBeenCalledTimes(1);
+    const msg = document.getElementById("referralMsg")?.textContent ?? "";
+    expect(msg).toContain("Already credited ₹200");
+    expect(msg).not.toContain("failed");
+  });
+
+  it("still shows the red error for a non-duplicate insert failure", async () => {
+    const { insert } = mockRewardTables([{ id: "ref-1" }], {
+      error: { code: "42501", message: "permission denied for table wallet_transactions" },
+    });
+    seedRow("pending");
+    await run("markReferralRewarded('ref-1')");
+    expect(insert).toHaveBeenCalledTimes(1);
+    const msg = document.getElementById("referralMsg")?.textContent ?? "";
+    expect(msg).toContain("Reward saved but wallet credit failed");
   });
 });
