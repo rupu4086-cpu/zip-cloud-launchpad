@@ -353,7 +353,7 @@ describe("Home parity with the preview", () => {
     run("homeCategories=null; location.hash='#/home'; render()");
     const el = document.getElementById("offerCountdown");
     expect(el).not.toBeNull();
-    // Offer ends 13 Nov 2026 23:59 IST; while it is live the countdown shows days + hours + mins + secs.
+    // Offer ends 20 Nov 2026 23:59 IST; while it is live the countdown shows days + hours + mins + secs.
     expect(el?.textContent).toMatch(/Offer ends in \d+d \d+h \d+m \d+s/);
   });
 
