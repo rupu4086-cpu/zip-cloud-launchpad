@@ -17,6 +17,13 @@ before publishing the site/admin changes.
 Lovable dashboard → Functions → `razorpay-webhook` → Deploy.
 (Or from a terminal with the Supabase CLI: `supabase functions deploy razorpay-webhook`.)
 
+> **BLOCKED 2026-11-16:** the live function URL 404s and Lovable has no
+> manual deploy button — the trial routes in `index.ts` (`/trial/create`,
+> `/trial/verify`, `/trial/reconcile`, subscription webhooks) are written
+> but NOT live. Do not claim trial billing works until a deploy path is
+> confirmed and the function URL responds. See
+> `replica/build-log.md`.
+
 ## 3. Set the function secrets
 
 Lovable dashboard → Functions → `razorpay-webhook` → Secrets. All four are
@@ -26,7 +33,12 @@ needed; none of them ever goes in the repo, the admin panel, or browser code:
   It is shown once when the webhook (step 4) is created. This is NOT the
   Key Secret.
 - `RAZORPAY_KEY_SECRET` — from Razorpay Dashboard → Settings → API Keys.
-  Used only to verify Checkout handler signatures (`/verify` path).
+  Used only to verify Checkout handler signatures (`/verify` and
+  `/trial/verify` paths).
+- `RAZORPAY_TRIAL_PLAN_ID` — the NEW ₹399/month Razorpay Plan id
+  (`plan_…`), created in the Razorpay Dashboard → Subscriptions → Plans
+  (Monthly, ₹399). A plan's amount can never be edited, so this is NOT
+  the existing ₹1,000 Monthly plan. Needed only for `/trial/create`.
 - `SUPABASE_URL` — `https://kgoptzoxvcfianbrlpsz.supabase.co`
 - `SUPABASE_SERVICE_ROLE_KEY` — Supabase project service-role key (bypasses
   RLS so the webhook can write subscriptions).
@@ -36,7 +48,9 @@ needed; none of them ever goes in the repo, the admin panel, or browser code:
 Razorpay Dashboard → Settings → Webhooks → Add New Webhook:
 
 - URL: `https://kgoptzoxvcfianbrlpsz.supabase.co/functions/v1/razorpay-webhook`
-- Events: `payment.captured` only.
+- Events: `payment.captured`, `subscription.authenticated`,
+  `subscription.charged`, `subscription.pending`, `subscription.halted`,
+  `subscription.completed` (+ `subscription.cancelled` — hook only).
 - Copy the webhook secret shown after creation into
   `RAZORPAY_WEBHOOK_SECRET` (step 3).
 
