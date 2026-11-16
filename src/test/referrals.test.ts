@@ -7,794 +7,212 @@ const adminHtml = readFileSync("public/admin.html", "utf8");
 const adminScript = adminHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 const resetHtml = readFileSync("public/reset-password.html", "utf8");
 
-type Row = any;
-
-// In-memory Supabase mock: tables behave like the real ones for the
-// queries the referral/wallet code makes (select/eq/order/limit,
-// maybeSingle, insert with unique checks, update with a pending guard).
-function makeDb(): any {
-  return {
-    referral_codes: [] as Row[],
-    referrals: [] as Row[],
-    wallet_transactions: [] as Row[],
-    // Test-only instrumentation: __failSelect forces select/insert/then
-    // errors for the named tables; __selects counts select() calls per
-    // table (used to prove the Refer view stops re-loading its code).
-    __selects: {} as Record<string, number>,
-    __failSelect: null as Set<string> | null,
-  };
-}
-
-class Query {
-  private filters: [string, any][] = [];
-  private patch: Row | null = null;
-  private limitN: number | null = null;
-  constructor(private db: Record<string, Row[]>, private table: string) {}
-  private shouldFail() { return !!(this.db as any).__failSelect?.has(this.table); }
-  select() {
-    (this.db as any).__selects[this.table] = (((this.db as any).__selects[this.table] ?? 0) + 1);
-    return this;
-  }
-  eq(col: string, val: any) { this.filters.push([col, val]); return this; }
-  order() { return this; }
-  limit(n: number) { this.limitN = n; return this; }
-  private rows() { return this.db[this.table] ?? []; }
-  private filtered() {
-    let rows = this.rows().filter((r) => this.filters.every(([c, v]) => r[c] === v));
-    if (this.limitN !== null) rows = rows.slice(0, this.limitN);
-    return rows;
-  }
-  async maybeSingle() {
-    if (this.shouldFail()) return { data: null, error: { message: "denied" } };
-    const rows = this.filtered();
-    return { data: rows[0] ?? null, error: null };
-  }
-  async insert(row: Row) {
-    if (this.shouldFail()) return { data: null, error: { message: "denied" } };
-    if (this.table === "referral_codes" && this.rows().some((r) => r.code === row.code || r.user_id === row.user_id)) {
-      return { data: null, error: { message: "duplicate key" } };
-    }
-    if (this.table === "referrals" && this.rows().some((r) => r.referred_id === row.referred_id)) {
-      return { data: null, error: { message: "duplicate key" } };
-    }
-    if (
-      this.table === "wallet_transactions" &&
-      row.kind === "referral_credit" &&
-      row.referral_id &&
-      this.rows().some((r) => r.kind === "referral_credit" && r.referral_id === row.referral_id)
-    ) {
-      return { data: null, error: { message: "duplicate key" } };
-    }
-    const saved = { id: `id-${this.rows().length + 1}`, created_at: new Date().toISOString(), ...row };
-    this.rows().push(saved);
-    return { data: [saved], error: null };
-  }
-  update(patch: Row) { this.patch = patch; return this; }
-  then(resolve: any, reject: any) {
-    try {
-      if (this.shouldFail()) {
-        return Promise.resolve({ data: null, error: { message: "denied" } }).then(resolve, reject);
-      }
-      if (this.patch) {
-        const matched = this.rows().filter((r) => this.filters.every(([c, v]) => r[c] === v));
-        matched.forEach((r) => Object.assign(r, this.patch));
-        return Promise.resolve({ data: matched, error: null }).then(resolve, reject);
-      }
-      return Promise.resolve({ data: this.filtered(), error: null }).then(resolve, reject);
-    } catch (e) {
-      return Promise.reject(e).then(resolve, reject);
-    }
-  }
-}
-
-function makeSiteClient(db: any) {
-  const channel: any = {};
-  channel.on = vi.fn(() => channel);
-  channel.subscribe = vi.fn(() => channel);
-  const client = {
-    auth: {
-      getUser: vi.fn(async () => ({ data: { user: null }, error: null })),
-      getSession: vi.fn(async (): Promise<any> => ({ data: { session: null }, error: null })),
-      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: () => {} } } })),
-      signInWithOAuth: vi.fn(),
-      signInWithPassword: vi.fn(),
-      signUp: vi.fn(),
-      resetPasswordForEmail: vi.fn(),
-      signOut: vi.fn(),
-    },
-    from: vi.fn((table: string) => new Query(db, table)),
-    // Simulates the SECURITY DEFINER function check_referral_milestone:
-    // pays ₹5,000 once when the referrer has >= 50 rewarded referrals
-    // and no milestone_bonus row yet; false otherwise (unknown referral,
-    // under 50, bonus already paid, or a forced failure via __failRpc).
-    rpc: vi.fn(async (fn: string, params: any) => {
-      if (fn !== "check_referral_milestone") return { data: null, error: { message: "unknown function" } };
-      if ((db as any).__failRpc) return { data: null, error: { message: "denied" } };
-      const ref = db.referrals.find((r: Row) => r.id === params.p_referral_id && r.referrer_id === params.p_referrer_id && r.status === "rewarded");
-      if (!ref) return { data: false, error: null };
-      const count = db.referrals.filter((r: Row) => r.referrer_id === params.p_referrer_id && r.status === "rewarded").length;
-      if (count < 50) return { data: false, error: null };
-      if (db.wallet_transactions.some((t: Row) => t.user_id === params.p_referrer_id && t.kind === "milestone_bonus")) return { data: false, error: null };
-      db.wallet_transactions.push({ id: `id-${db.wallet_transactions.length + 1}`, created_at: new Date().toISOString(), user_id: params.p_referrer_id, referral_id: params.p_referral_id, kind: "milestone_bonus", amount_paise: 500000, status: "completed" });
-      return { data: true, error: null };
-    }),
-    channel: vi.fn(() => channel),
-    removeChannel: vi.fn(),
-  };
-  return client;
-}
+// The referral system, wallet, spin wheel and downloads were REMOVED
+// ENTIRELY (redirect 2026-11-16). The tests below pin the removal: no code,
+// no route and no UI for them may come back, and the Rs.1 trial fee can
+// never activate a plan.
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const flush = async () => { for (let i = 0; i < 5; i++) await tick(); };
 
-describe("Referrals & wallet — logo served from R2", () => {
-  const R2_LOGO = "https://drive.google.com/thumbnail?id=1Ls9hChLg7Cxry-v9ClJGWLjJ-rNu8Cvz&sz=w1000";
-  it("all logo references point at the R2 public URL", () => {
-    expect(siteHtml).toContain(R2_LOGO);
-    expect(siteHtml).not.toContain("/technotrade-logo.png?v=1");
-    expect(siteHtml).not.toContain('src="/technotrade-logo.png"');
-    expect(adminHtml).toContain(R2_LOGO);
-    expect(adminHtml).not.toContain("/technotrade-logo.png?v=1");
-    expect(adminHtml).not.toContain('src="/technotrade-logo.png"');
-    expect(resetHtml).toContain(R2_LOGO);
-    expect(resetHtml).not.toContain("/technotrade-logo.png?v=1");
-    expect(resetHtml).not.toContain('src="/technotrade-logo.png"');
-  });
-});
-
-describe("Referrals & wallet — learner website", () => {
+describe("Removed systems — learner website", () => {
   let run: (code: string) => unknown;
-  let db: any;
+  let paymentsRows: any[];
+  let subscriptionInserts: any[];
+
+  function makeLearnerClient() {
+    const queryFor = (table: string) => {
+      // Test-only mock: `any` keeps the chained Supabase-style query builder
+      // type-clean (tsc flags dot access on Record<string, unknown>).
+      const query: any = { __table: table };
+      query.select = vi.fn(() => query);
+      query.eq = vi.fn(() => query);
+      query.order = vi.fn(() => query);
+      query.limit = vi.fn(() => query);
+      query.insert = vi.fn((payload: any) => {
+        if (table === "subscriptions") subscriptionInserts.push(payload);
+        return query;
+      });
+      query.update = vi.fn(() => query);
+      query.upsert = vi.fn(() => query);
+      query.delete = vi.fn(() => query);
+      query.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
+      query.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => {
+        const result =
+          table === "payments" ? { data: paymentsRows, error: null } : { data: [], error: null };
+        return Promise.resolve(result).then(resolve, reject);
+      };
+      return query;
+    };
+    const channel: any = {};
+    channel.on = vi.fn(() => channel);
+    channel.subscribe = vi.fn(() => channel);
+    const client = {
+      auth: {
+        getUser: vi.fn(async () => ({ data: { user: null }, error: null })),
+        getSession: vi.fn(async () => ({ data: { session: null }, error: null })),
+        onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: () => {} } } })),
+        signInWithOAuth: vi.fn(),
+        signInWithPassword: vi.fn(),
+        signUp: vi.fn(),
+        resetPasswordForEmail: vi.fn(),
+        signOut: vi.fn(),
+      },
+      from: vi.fn((table: string) => queryFor(table)),
+      channel: vi.fn(() => channel),
+      removeChannel: vi.fn(),
+    };
+    return client;
+  }
 
   beforeEach(() => {
+    paymentsRows = [];
+    subscriptionInserts = [];
     document.body.innerHTML = siteHtml.split("<body>")[1]?.split("<script>")[0] ?? "";
     window.scrollTo = vi.fn();
-    db = makeDb();
-    const client = makeSiteClient(db);
-    Object.assign(window, { supabase: { createClient: () => client } });
-    if (!siteScript) throw new Error("Learner script missing");
-    run = new Function(`${siteScript}\nreturn code => eval(code);`)();
-    run("currentUser = {uid:'u1',id:'u1',displayName:'Learner',email:'learner@example.com'}; isAdmin = false; courses=[]; coursesLoaded=false; subscription=null; supportMessages=null; myReferralCode=null; myReferralCodeLoaded=false; myReferrals=null; walletTxns=null;");
+    Object.assign(window, { supabase: { createClient: () => makeLearnerClient() } });
     localStorage.clear();
     sessionStorage.clear();
     location.hash = "#/home";
-  });
-
-  it("generates 8-char uppercase referral codes", () => {
-    const a = run("generateReferralCode()") as string;
-    const b = run("generateReferralCode()") as string;
-    expect(a).toMatch(/^[A-Z0-9]{8}$/);
-    expect(b).toMatch(/^[A-Z0-9]{8}$/);
-    expect(a).not.toBe(b);
-  });
-
-  it("parses ?ref= from the URL and rejects junk", () => {
-    expect(run("parseReferralCodeFromUrl('?ref=abc123')")).toBe("ABC123");
-    expect(run("parseReferralCodeFromUrl('?ref=ABC12345&x=1')")).toBe("ABC12345");
-    expect(run("parseReferralCodeFromUrl('')")).toBe("");
-    expect(run("parseReferralCodeFromUrl('?foo=bar')")).toBe("");
-    expect(run("parseReferralCodeFromUrl('?ref=ab')")).toBe("");
-    expect(run("parseReferralCodeFromUrl('?ref=ABC-123')")).toBe("");
-  });
-
-  it("builds the referral link with the code", () => {
-    expect(run("referralLink('ABC12345')")).toBe(
-      "https://technoacademy.online/technotrade.html?ref=ABC12345",
+    if (!siteScript) throw new Error("Learner script missing");
+    run = new Function(`${siteScript}\nreturn code => eval(code);`)();
+    run(
+      "currentUser = {uid:'u1',id:'u1',displayName:'Learner',email:'learner@example.com'}; isAdmin = false; courses=[]; coursesLoaded=true; subscription=null; trialStatus=null;",
     );
   });
 
-  it("rewards ₹200 for Monthly and ₹500 for Yearly", () => {
-    expect(run("referralRewardForPlan('monthly')")).toBe(20000);
-    expect(run("referralRewardForPlan('yearly')")).toBe(50000);
-    expect(run("referralRewardForPlan('bogus')")).toBe(20000);
-  });
-
-  it("validates UPI IDs", () => {
-    expect(run("isValidUpiId('rupu@okhdfcbank')")).toBe(true);
-    expect(run("isValidUpiId('name.surname@paytm')")).toBe(true);
-    expect(run("isValidUpiId('noatsign')")).toBe(false);
-    expect(run("isValidUpiId('a@b')")).toBe(false);
-    expect(run("isValidUpiId('')")).toBe(false);
-    expect(run("isValidUpiId('name@')")).toBe(false);
-  });
-
-  it("computes the balance with requested withdrawals reserved and rejected ignored", () => {
-    const balance = run(`walletBalancePaise([
-      {kind:'referral_credit', amountPaise:5000, status:'completed'},
-      {kind:'referral_credit', amountPaise:10000, status:'completed'},
-      {kind:'withdrawal', amountPaise:-10000, status:'requested'},
-      {kind:'withdrawal', amountPaise:-5000, status:'paid'},
-      {kind:'withdrawal', amountPaise:-20000, status:'rejected'},
-    ])`);
-    expect(balance).toBe(0);
-    expect(run(`walletTotalEarnedPaise([
-      {kind:'referral_credit', amountPaise:5000, status:'completed'},
-      {kind:'referral_credit', amountPaise:10000, status:'completed'},
-      {kind:'withdrawal', amountPaise:-10000, status:'requested'},
-    ])`)).toBe(15000);
-  });
-
-  it("signup form has the referral code field in signup mode", () => {
-    const html = run("renderLogin()") as string;
-    expect(html).toContain('id="authRefCode"');
-    expect(html).toContain('id="signupRefBox"');
-    expect(html).toContain("Referral code (optional)");
-    // Referral code field is LAST in the signup form: Name -> Email -> Password -> Referral code -> Create account.
-    const refIdx = html.indexOf('id="signupRefBox"');
-    expect(refIdx).toBeGreaterThan(html.indexOf('id="authPassword"'));
-    expect(refIdx).toBeLessThan(html.indexOf('id="emailBtn"'));
-    expect(siteScript).toContain("prefillReferralCode");
-    expect(siteScript).toContain('sessionStorage.getItem("tt_ref_code")');
-  });
-
-  it("profile links Refer & Earn and Wallet, and the router serves both", () => {
-    const html = run("renderProfile()") as string;
-    expect(html).toContain("Refer & Earn");
-    expect(html).toContain("Wallet");
-    expect(siteScript).toContain('r.name === "refer"');
-    expect(siteScript).toContain("renderRefer()");
-    expect(siteScript).toContain('r.name === "wallet"');
-    expect(siteScript).toContain("renderWallet()");
-  });
-
-  it("rejects attribution for an unknown code", async () => {
-    const ok = await run("maybeAttributeReferral('NOPE1234')");
-    expect(ok).toBe(false);
-    expect(db.referrals).toHaveLength(0);
-  });
-
-  it("blocks self-referral", async () => {
-    db.referral_codes.push({ user_id: "u1", code: "SELFCODE" });
-    const ok = await run("maybeAttributeReferral('SELFCODE')");
-    expect(ok).toBe(false);
-    expect(db.referrals).toHaveLength(0);
-  });
-
-  it("attributes a valid code once, and only once", async () => {
-    db.referral_codes.push({ user_id: "ref1", code: "ABC12345" });
-    expect(await run("maybeAttributeReferral('abc12345')")).toBe(true);
-    expect(db.referrals).toHaveLength(1);
-    expect(db.referrals[0]).toMatchObject({
-      code: "ABC12345",
-      referrer_id: "ref1",
-      referred_id: "u1",
-      status: "pending",
-    });
-    expect(await run("maybeAttributeReferral('ABC12345')")).toBe(false);
-    expect(db.referrals).toHaveLength(1);
-  });
-
-  it("rewards the referrer once on first purchase — ₹200 Monthly, ₹500 Yearly", async () => {
-    db.referrals.push({
-      id: "r1", code: "ABC12345", referrer_id: "ref1", referred_id: "u1",
-      status: "pending", created_at: new Date().toISOString(),
-    });
-    await run("maybeRewardReferral('u1', 'monthly')");
-    expect(db.referrals[0].status).toBe("rewarded");
-    expect(db.referrals[0].reward_amount_paise).toBe(20000);
-    expect(db.wallet_transactions).toHaveLength(1);
-    expect(db.wallet_transactions[0]).toMatchObject({
-      user_id: "ref1", referral_id: "r1", kind: "referral_credit",
-      amount_paise: 20000, status: "completed",
-    });
-    // Second call (e.g. checkout success + manual verify) must not double-pay.
-    await run("maybeRewardReferral('u1', 'yearly')");
-    expect(db.wallet_transactions).toHaveLength(1);
-    expect(db.referrals[0].reward_amount_paise).toBe(20000);
-  });
-
-  it("rewards ₹500 for a Yearly first purchase", async () => {
-    db.referrals.push({
-      id: "r1", code: "ABC12345", referrer_id: "ref1", referred_id: "u1",
-      status: "pending", created_at: new Date().toISOString(),
-    });
-    await run("maybeRewardReferral('u1', 'yearly')");
-    expect(db.referrals[0].reward_amount_paise).toBe(50000);
-    expect(db.wallet_transactions[0].amount_paise).toBe(50000);
-  });
-
-  it("does nothing when there is no pending referral", async () => {
-    await run("maybeRewardReferral('u1', 'monthly')");
-    expect(db.wallet_transactions).toHaveLength(0);
-  });
-
-  it("hooks the reward into subscription activation", () => {
-    expect(siteScript).toContain("maybeRewardReferral(record.userId, record.planId)");
-  });
-
-  it("Refer & Earn shows the code, link and copy buttons", async () => {
-    run("myReferralCode = 'ABC12345'; myReferrals = [{id:'r1', code:'ABC12345', referrerId:'ref1', referredId:'u1', status:'rewarded', rewardPaise:20000, createdAtMs:1000}];");
-    const html = run("renderRefer()") as string;
-    expect(html).toContain("ABC12345");
-    expect(html).toContain("https://technoacademy.online/technotrade.html?ref=ABC12345");
-    expect(html).toContain('id="copyRefLinkBtn"');
-    expect(html).toContain('id="copyRefCodeBtn"');
-    expect(html).toContain("₹200");
-    expect(html).toContain("₹500");
-    expect(html).toContain("₹200 and ₹500 per referral");
-  });
-
-  it("Refer & Earn always shows the copy buttons, disabled until the code loads", () => {
-    run("myReferralCode = null; myReferrals = [];");
-    const html = run("renderRefer()") as string;
-    expect(html).toContain('id="copyRefLinkBtn"');
-    expect(html).toContain('id="copyRefCodeBtn"');
-    expect(html).toContain("Generating your link");
-    expect(html).toContain("disabled");
-    expect(siteScript).toContain('toast("Copied!")');
-  });
-
-  it("generates and saves a code lazily on first Refer open", async () => {
-    expect(await run("ensureReferralCode()")).toMatch(/^[A-Z0-9]{8}$/);
-    expect(db.referral_codes).toHaveLength(1);
-    expect(db.referral_codes[0].user_id).toBe("u1");
-    // Second call reuses the saved code, no duplicate row.
-    const again = await run("ensureReferralCode()");
-    expect(again).toBe(db.referral_codes[0].code);
-    expect(db.referral_codes).toHaveLength(1);
-  });
-
-  it("Profile header shows the wallet balance instead of the name", () => {
-    run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', createdAtMs:1000}];`);
-    const html = run("renderProfile()") as string;
-    expect(html).toContain("Wallet Balance");
-    expect(html).toContain("₹200.00");
-    expect(html).toContain("learner@example.com");
-    expect(html).not.toContain("Learner");
-    expect(html).toContain("Refer & Earn");
-    expect(html).toContain("Wallet");
-  });
-
-  it("Profile header shows a placeholder while the wallet is loading, never a wrong ₹0.00", () => {
-    // beforeEach leaves walletTxns null (not loaded yet).
-    const html = run("renderProfile()") as string;
-    expect(html).toContain("Wallet Balance");
-    expect(html).toContain("…");
-    expect(html).not.toContain("₹0.00");
-    expect(html).not.toContain("Learner");
-  });
-
-  it("Refer & Earn resolves the code from an existing row and enables Copy on first open (regression: stuck Generating…)", async () => {
-    // Mirrors the live case: the referral_codes row already exists.
-    db.referral_codes.push({ user_id: "u1", code: "QHL8LFM8", created_at: new Date().toISOString() });
-    location.hash = "#/refer";
-    run("render()");
-    await flush();
-    const html = document.getElementById("view")!.innerHTML;
-    expect(html).toContain("QHL8LFM8");
-    expect(html).toContain("https://technoacademy.online/technotrade.html?ref=QHL8LFM8");
-    expect(html).not.toContain("Generating your link");
-    expect(html).not.toContain("Loading referrals");
-    expect(html).toContain("No referrals yet");
-    expect((document.getElementById("copyRefLinkBtn") as HTMLButtonElement).disabled).toBe(false);
-    expect((document.getElementById("copyRefCodeBtn") as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("re-rendering Refer & Earn does not re-trigger the code load (regression: infinite render loop)", async () => {
-    db.referral_codes.push({ user_id: "u1", code: "QHL8LFM8", created_at: new Date().toISOString() });
-    location.hash = "#/refer";
-    run("render()");
-    await flush();
-    // One select: the first load found the existing row.
-    expect(db.__selects["referral_codes"]).toBe(1);
-    run("render()");
-    run("render()");
-    run("render()");
-    await flush();
-    expect(db.__selects["referral_codes"]).toBe(1);
-    expect(document.getElementById("view")!.innerHTML).toContain("QHL8LFM8");
-  });
-
-  it("a failed referrals load shows the empty state, not a permanent Loading…", async () => {
-    db.__failSelect = new Set(["referrals"]);
-    location.hash = "#/refer";
-    run("render()");
-    await flush();
-    const html = document.getElementById("view")!.innerHTML;
-    expect(html).not.toContain("Loading referrals");
-    expect(html).toContain("No referrals yet");
-  });
-
-  it("a failed code load shows a retry instead of hanging on Generating…", async () => {
-    db.__failSelect = new Set(["referral_codes"]);
-    location.hash = "#/refer";
-    run("render()");
-    await flush();
-    const html = document.getElementById("view")!.innerHTML;
-    expect(html).toContain("Couldn't generate your link");
-    expect(html).not.toContain("Generating your link");
-    expect(document.getElementById("retryRefCodeBtn")).not.toBeNull();
-    // Retrying re-attempts the load without hanging.
-    (document.getElementById("retryRefCodeBtn") as HTMLButtonElement).click();
-    await flush();
-    expect(document.getElementById("view")!.innerHTML).toContain("Couldn't generate your link");
-  });
-
-  it("back arrow returns to Profile from Refer & Earn and Wallet", async () => {
-    location.hash = "#/refer";
-    run("render()");
-    await flush();
-    (document.querySelector(".backbtn") as HTMLButtonElement).click();
-    expect(location.hash).toBe("#/profile");
-    run("render()");
-    expect(document.getElementById("view")!.innerHTML).toContain("Wallet Balance");
-    location.hash = "#/wallet";
-    run("render()");
-    await flush();
-    (document.querySelector(".backbtn") as HTMLButtonElement).click();
-    expect(location.hash).toBe("#/profile");
-  });
-
-  it("Wallet shows the balance, the form and the transaction list", () => {
-    run(`walletTxns = [
-      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', createdAtMs:1000},
-      {id:'t2', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'requested', upiId:'learner@okhdfcbank', createdAtMs:2000},
-      {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'paid', upiId:'learner@okhdfcbank', createdAtMs:3000},
-      {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-2000, status:'rejected', upiId:'learner@okhdfcbank', createdAtMs:4000},
-    ];`);
-    const html = run("renderWallet()") as string;
-    expect(html).toContain("Wallet Balance");
-    expect(html).toContain('sub-card wallet-balance');
-    expect(html).toContain('wallet-ic');
-    expect(html).toContain('id="walletWithdrawBtn"');
-    expect(html).toContain("Withdraw ↗");
-    expect(html).toContain("-₹100.00");
-    expect(html).toContain("-₹100");
-    expect(html).toContain("learner@okhdfcbank");
-    expect(html).toContain('id="withdrawUpi"');
-    expect(html).toContain('id="withdrawAmount"');
-    expect(html).toContain('id="withdrawBtn"');
-    expect(html).not.toContain("Minimum withdrawal");
-    expect(html).toContain("Status: Earned");
-    expect(html).toContain("Status: Pending");
-    expect(html).toContain("Status: Complete");
-    expect(html).toContain("Status: Rejected");
-  });
-
-  it("Wallet has an explicit Withdrawal history section for referral money", () => {
-    // This is the referral-money history on the Wallet page — the same
-    // rows also appear in the Payment history view, merged with the
-    // Razorpay payments. Credits show as Earned ₹200/₹500 with the plan
-    // (and the friend's code when known); withdrawals show their
-    // Pending/Complete/Rejected status with the UPI ID and date.
-    run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:20000, createdAtMs:1000}];
-      walletTxns = [
-      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
-      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:50000, status:'completed', upiId:'', referralId:'', createdAtMs:2000},
-      {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'requested', upiId:'learner@okhdfcbank', createdAtMs:3000},
-      {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'paid', upiId:'learner@okhdfcbank', createdAtMs:4000},
-      {id:'t5', userId:'u1', kind:'withdrawal', amountPaise:-2000, status:'rejected', upiId:'learner@okhdfcbank', createdAtMs:5000},
-    ];`);
-    const html = run("renderWallet()") as string;
-    expect(html).toContain("Withdrawal history");
-    expect(html).toContain("Your referral earnings and UPI withdrawals");
-    expect(html).not.toContain("Razorpay");
-    expect(html).toContain("Earned ₹200");
-    expect(html).toContain("Monthly plan");
-    expect(html).toContain("Code: ABCD1234");
-    expect(html).toContain("Earned ₹500");
-    expect(html).toContain("Yearly plan");
-    expect(html).toContain("Status: Earned");
-    expect(html).toContain("Status: Pending");
-    expect(html).toContain("Status: Complete");
-    expect(html).toContain("Status: Rejected");
-    expect(html).toContain("learner@okhdfcbank");
-  });
-
-  it("Wallet empty history shows No withdrawals yet, not a permanent Loading…", () => {
-    run(`walletTxns = [];`);
-    const html = run("renderWallet()") as string;
-    expect(html).toContain("Withdrawal history");
-    expect(html).toContain("No withdrawals yet");
-    expect(html).not.toContain("Loading transactions");
-  });
-
-  it("Payment history merges Razorpay payments, referral credits and withdrawals, newest first", () => {
-    // Rupu's correction: the refer credit and the withdrawal history must
-    // show in the Payment history too — one merged list, each row labelled
-    // with its type (Payment / Earned referral credit / UPI withdrawal).
-    run(`myReferrals = [{id:'r1', code:'ABCD1234', referrerId:'u1', referredId:'u2', status:'rewarded', rewardPaise:20000, createdAtMs:1000}];
-      paymentHistory = [{id:'pay_1', userId:'u1', planId:'monthly', status:'captured', amountPaise:100000, razorpayPaymentId:'pay_1', createdAt:{seconds:3}}];
-      walletTxns = [
-      {id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
-      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:50000, status:'completed', upiId:'', referralId:'', createdAtMs:5000},
-      {id:'t3', userId:'u1', kind:'withdrawal', amountPaise:-5000, status:'requested', upiId:'new-withdrawal@okhdfcbank', createdAtMs:4000},
-      {id:'t4', userId:'u1', kind:'withdrawal', amountPaise:-10000, status:'paid', upiId:'old-withdrawal@okhdfcbank', createdAtMs:2000},
-    ];`);
-    const html = run("renderPaymentHistory()") as string;
-    // Razorpay payment row intact: plan, amount, type label, status, payment ID.
-    expect(html).toContain("Monthly plan");
-    expect(html).toContain("₹1,000");
-    expect(html).toContain("Payment · Status: captured");
-    expect(html).toContain("Payment ID: pay_1");
-    // Referral credits with plan + friend's code, withdrawals with status + UPI ID.
-    expect(html).toContain("Earned ₹200");
-    expect(html).toContain("Code: ABCD1234");
-    expect(html).toContain("Earned ₹500");
-    expect(html).toContain("Yearly plan");
-    expect(html).toContain("Status: Pending");
-    expect(html).toContain("Status: Complete");
-    expect(html).toContain("new-withdrawal@okhdfcbank");
-    expect(html).toContain("old-withdrawal@okhdfcbank");
-    // Newest first: credit ₹500 (5s) > withdrawal (4s) > payment (3s) > credit ₹200 (1s).
-    expect(html.indexOf("Earned ₹500")).toBeLessThan(html.indexOf("new-withdrawal@okhdfcbank"));
-    expect(html.indexOf("new-withdrawal@okhdfcbank")).toBeLessThan(html.indexOf("Payment ID: pay_1"));
-    expect(html.indexOf("Payment ID: pay_1")).toBeLessThan(html.indexOf("Earned ₹200"));
-    expect(html).not.toContain("No payments yet");
-    expect(html).not.toContain("Loading");
-  });
-
-  it("Payment history still shows Razorpay payments when the wallet list is empty", () => {
-    run(`paymentHistory = [{id:'pay_1', userId:'u1', planId:'monthly', status:'captured', amountPaise:100000, razorpayPaymentId:'pay_1', createdAt:{seconds:3}}];
-      walletTxns = [];`);
-    const html = run("renderPaymentHistory()") as string;
-    expect(html).toContain("Monthly plan");
-    expect(html).toContain("₹1,000");
-    expect(html).toContain("Payment ID: pay_1");
-    expect(html).not.toContain("No payments yet");
-    expect(html).not.toContain("Loading");
-  });
-
-  it("Payment history empty state covers payments, credits and withdrawals", () => {
-    run(`paymentHistory = []; walletTxns = [];`);
-    const html = run("renderPaymentHistory()") as string;
-    expect(html).toContain("No payments yet");
-    expect(html).toContain("Payments, referral credits and withdrawals will appear here.");
-    expect(html).not.toContain("Loading");
-  });
-
-  it("Payment history shows payments while wallet rows are still loading", () => {
-    run(`paymentHistory = [{id:'pay_1', userId:'u1', planId:'monthly', status:'captured', amountPaise:100000, razorpayPaymentId:'pay_1', createdAt:{seconds:3}}];
-      walletTxns = null;`);
-    const html = run("renderPaymentHistory()") as string;
-    expect(html).toContain("Payment ID: pay_1");
-    expect(html).toContain("Loading referral credits and withdrawals");
-    expect(html).not.toContain("No payments yet");
-  });
-
-  it("Profile Payment history row covers payments, referral earnings and withdrawals", () => {
-    const html = run("renderProfile()") as string;
-    expect(html).toContain("Payment history");
-    expect(html).toContain("Payments, referral earnings and withdrawals");
-    expect(html).not.toContain("Your Razorpay payments");
-  });
-
-  it("opening Payment history loads both payments and wallet rows and renders the merged list", async () => {
-    db.payments = [{ id: "pay_1", user_id: "u1", plan_id: "monthly", amount: 100000, status: "captured", created_at: new Date(3000).toISOString() }];
-    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 20000, status: "completed", upi_id: "", created_at: new Date(1000).toISOString() });
-    location.hash = "#/payments";
-    run("render()");
-    await flush();
-    expect(db.__selects["payments"]).toBe(1);
-    expect(db.__selects["wallet_transactions"]).toBe(1);
-    const html = document.getElementById("view")!.innerHTML;
-    expect(html).toContain("Payment ID: pay_1");
-    expect(html).toContain("Earned ₹200");
-    expect(html).not.toContain("Loading");
-  });
-
-  it("a failed wallet load shows the empty state, not a permanent Loading…", async () => {
-    db.__failSelect = new Set(["wallet_transactions"]);
-    location.hash = "#/wallet";
-    run("render()");
-    await flush();
-    const html = document.getElementById("view")!.innerHTML;
-    expect(html).toContain("Withdrawal history");
-    expect(html).toContain("No withdrawals yet");
-    expect(html).not.toContain("Loading transactions");
-  });
-
-  it("re-rendering Wallet does not re-trigger the wallet load (audit: no render loop)", async () => {
-    // Mirrors the Refer & Earn loop regression: bindWallet must load once,
-    // and the re-render loadWallet triggers must not fetch again.
-    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 20000, status: "completed", upi_id: "", created_at: new Date().toISOString() });
-    location.hash = "#/wallet";
-    run("render()");
-    await flush();
-    expect(db.__selects["wallet_transactions"]).toBe(1);
-    run("render()");
-    run("render()");
-    run("render()");
-    await flush();
-    expect(db.__selects["wallet_transactions"]).toBe(1);
-    expect(document.getElementById("view")!.innerHTML).toContain("Withdrawal history");
-    expect(document.getElementById("view")!.innerHTML).toContain("Earned ₹200");
-  });
-
-  it("Wallet Withdraw button jumps to the form and focuses the UPI field", () => {
-    run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:5000, status:'completed', upiId:'', createdAtMs:1000}];`);
-    document.body.innerHTML = run("renderWallet()") as string;
-    run("bindWallet()");
-    (document.getElementById("walletWithdrawBtn") as HTMLButtonElement).click();
-    expect(document.activeElement?.id).toBe("withdrawUpi");
-    expect(run("fmtRs2(0)")).toBe("₹0.00");
-    expect(run("fmtRs2(20000)")).toBe("₹200.00");
-  });
-
-  it("withdrawal validation: bad UPI, zero amount, above balance", async () => {
-    run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', createdAtMs:1000}];`);
-    document.body.innerHTML = run("renderWallet()") as string;
-    run("bindWallet()");
-    const setForm = (upi: string, amount: string) => {
-      (document.getElementById("withdrawUpi") as HTMLInputElement).value = upi;
-      (document.getElementById("withdrawAmount") as HTMLInputElement).value = amount;
-    };
-    setForm("not-an-upi", "200");
-    await run("requestWithdrawal()");
-    expect(document.getElementById("withdrawMsg")?.textContent).toContain("valid UPI ID");
-    setForm("learner@okhdfcbank", "0");
-    await run("requestWithdrawal()");
-    expect(document.getElementById("withdrawMsg")?.textContent).toContain("more than ₹0");
-    setForm("learner@okhdfcbank", "250");
-    await run("requestWithdrawal()");
-    expect(document.getElementById("withdrawMsg")?.textContent).toContain("more than your available balance");
-    expect(db.wallet_transactions).toHaveLength(0);
-  });
-
-  it("a valid withdrawal inserts a requested row reserving the amount", async () => {
-    // The ₹200 credit must exist in the DB too: requestWithdrawal reloads
-    // the wallet from the DB after inserting, so the balance check reads it.
-    db.wallet_transactions.push({ id: "t1", user_id: "u1", kind: "referral_credit", amount_paise: 20000, status: "completed", upi_id: "", created_at: new Date().toISOString() });
-    run(`walletTxns = [{id:'t1', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', createdAtMs:1000}];`);
-    document.body.innerHTML = run("renderWallet()") as string;
-    run("bindWallet()");
-    (document.getElementById("withdrawUpi") as HTMLInputElement).value = "learner@okhdfcbank";
-    (document.getElementById("withdrawAmount") as HTMLInputElement).value = "50";
-    await run("requestWithdrawal()");
-    await tick();
-    expect(db.wallet_transactions).toHaveLength(2);
-    expect(db.wallet_transactions[1]).toMatchObject({
-      user_id: "u1", kind: "withdrawal", amount_paise: -5000,
-      status: "requested", upi_id: "learner@okhdfcbank",
-    });
-    // The requested amount is now reserved: available balance drops to ₹150.
-    expect(run("walletBalancePaise(walletTxns)")).toBe(15000);
-  });
-
-  // Milestone bonus: ₹5,000 once at 50 rewarded referrals (Rupu, 2026-11-12).
-  const seedRewarded = (n: number) => {
-    for (let i = 0; i < n; i++) {
-      db.referrals.push({ id: `r-seed-${i}`, code: "ABC12345", referrer_id: "ref1", referred_id: `friend-${i}`, status: "rewarded", reward_amount_paise: 20000, created_at: new Date().toISOString() });
+  it("no spin, referral, wallet or download code remains in the learner script", () => {
+    const script = siteScript ?? "";
+    for (const gone of [
+      "spinPct",
+      "spinWheel",
+      "spinPricePaise",
+      "checkTodaySpin",
+      "spin_plays",
+      "WHEEL_VALUES",
+      "renderRefer",
+      "renderWallet",
+      "maybeRewardReferral",
+      "maybeAttributeReferral",
+      "parseReferralCodeFromUrl",
+      "generateReferralCode",
+      "referralLink",
+      "referral_codes",
+      "wallet_transactions",
+      "walletBalancePaise",
+      "requestWithdrawal",
+      "startDownload",
+      "renderDownloads",
+      "loadWallet",
+      "tt_ref_code",
+      "MILESTONE_REFERRALS",
+    ]) {
+      expect(script).not.toContain(gone);
     }
-  };
-  const pendingReferral = () => {
-    db.referrals.push({ id: "r1", code: "ABC12345", referrer_id: "ref1", referred_id: "u1", status: "pending", created_at: new Date().toISOString() });
-  };
-
-  it("milestone constants are 50 referrals and ₹5,000, checked via the server function", () => {
-    expect(run("MILESTONE_REFERRALS")).toBe(50);
-    expect(run("MILESTONE_BONUS_PAISE")).toBe(500000);
-    expect(siteScript).toContain("maybeRewardMilestone");
-    expect(siteScript).toContain('rpc("check_referral_milestone"');
-    expect(siteScript).toContain("maybeRewardMilestone(ref.referrer_id, ref.id)");
   });
 
-  it("no milestone bonus at 49 rewarded referrals", async () => {
-    seedRewarded(48);
-    pendingReferral();
-    await run("maybeRewardReferral('u1', 'monthly')");
-    expect(db.referrals.find((r: Row) => r.id === "r1").status).toBe("rewarded");
-    expect(db.wallet_transactions).toHaveLength(1);
-    expect(db.wallet_transactions[0]).toMatchObject({ kind: "referral_credit", amount_paise: 20000 });
-    expect(db.wallet_transactions.filter((t: Row) => t.kind === "milestone_bonus")).toHaveLength(0);
+  it("no spin, learning-path, teaser or wallet CSS remains", () => {
+    const style = siteHtml.split("<style>")[1]?.split("</style>")[0] ?? "";
+    for (const gone of [
+      ".wheel-card",
+      ".wheel-spin",
+      ".spin-result",
+      ".offer-countdown",
+      ".path-card",
+      ".teaser",
+      ".wallet-balance",
+    ]) {
+      expect(style).not.toContain(gone);
+    }
   });
 
-  it("milestone bonus triggers exactly at the 50th rewarded referral", async () => {
-    seedRewarded(49);
-    pendingReferral();
-    await run("maybeRewardReferral('u1', 'monthly')");
-    expect(db.wallet_transactions).toHaveLength(2);
-    expect(db.wallet_transactions).toContainEqual(expect.objectContaining({
-      user_id: "ref1", referral_id: "r1", kind: "milestone_bonus",
-      amount_paise: 500000, status: "completed",
-    }));
+  it("Profile shows the name and Library/Subscriptions rows, never Refer/Wallet/Downloads", () => {
+    run("location.hash='#/profile'; render()");
+    const text = document.querySelector("#view")?.textContent || "";
+    expect(text).toContain("Learner");
+    expect(text).not.toContain("Wallet Balance");
+    expect(document.querySelector('[data-profile="library"]')).not.toBeNull();
+    expect(document.querySelector('[data-profile="subscriptions"]')).not.toBeNull();
+    expect(document.querySelector('[data-profile="refer"]')).toBeNull();
+    expect(document.querySelector('[data-profile="wallet"]')).toBeNull();
+    expect(document.querySelector('[data-profile="downloads"]')).toBeNull();
   });
 
-  it("no second milestone bonus at 51 rewarded referrals", async () => {
-    seedRewarded(50);
-    db.wallet_transactions.push({ id: "t-bonus", user_id: "ref1", referral_id: "r-seed-49", kind: "milestone_bonus", amount_paise: 500000, status: "completed", created_at: new Date().toISOString() });
-    pendingReferral();
-    await run("maybeRewardReferral('u1', 'monthly')");
-    expect(db.wallet_transactions.filter((t: Row) => t.kind === "milestone_bonus")).toHaveLength(1);
-    expect(db.wallet_transactions.filter((t: Row) => t.kind === "referral_credit")).toHaveLength(1);
+  it("removed routes redirect to Home", () => {
+    for (const route of ["#/refer", "#/wallet", "#/downloads"]) {
+      run(`location.hash='${route}'; render()`);
+      expect(location.hash).toBe("#/home");
+    }
   });
 
-  it("a failed milestone check never blocks the per-purchase reward", async () => {
-    seedRewarded(49);
-    pendingReferral();
-    (db as any).__failRpc = true;
-    await run("maybeRewardReferral('u1', 'monthly')");
-    expect(db.referrals.find((r: Row) => r.id === "r1").status).toBe("rewarded");
-    expect(db.wallet_transactions).toHaveLength(1);
-    expect(db.wallet_transactions[0]).toMatchObject({ kind: "referral_credit", amount_paise: 20000 });
+  it("signup form has no referral code field", () => {
+    run("currentUser=null; location.hash='#/profile'; render()");
+    expect(document.getElementById("authRefCode")).toBeNull();
+    expect(document.getElementById("signupRefBox")).toBeNull();
   });
 
-  it("Refer & Earn shows X / 50 milestone progress", () => {
-    run("myReferralCode = 'ABC12345'; myReferrals = [" +
-      " {id:'r1', code:'ABC12345', referrerId:'ref1', referredId:'u2', status:'rewarded', rewardPaise:20000, createdAtMs:1000}," +
-      " {id:'r2', code:'ABC12345', referrerId:'ref1', referredId:'u3', status:'rewarded', rewardPaise:50000, createdAtMs:2000}," +
-      " {id:'r3', code:'ABC12345', referrerId:'ref1', referredId:'u4', status:'pending', rewardPaise:0, createdAtMs:3000}];");
-    const html = run("renderRefer()") as string;
-    expect(html).toContain("2 / 50");
-    expect(html).toContain("one-time ₹5,000 bonus");
-    expect(html).not.toContain("Milestone reached");
+  it("checkMyPayment never activates on a Rs.1 trial-fee row", async () => {
+    paymentsRows.push({
+      id: "pay_trial1",
+      user_id: "u1",
+      plan_id: "monthly",
+      amount: 100,
+      status: "captured",
+      kind: "trial_fee",
+      created_at: new Date().toISOString(),
+    });
+    await run("checkMyPayment()");
+    await flush();
+    expect(subscriptionInserts).toHaveLength(0);
+    expect(run("access().hasActiveSubscription")).toBe(false);
   });
 
-  it("Refer & Earn shows the milestone as reached at 50 rewarded referrals", () => {
-    const refs = Array.from({ length: 50 }, (_, i) => ({ id: `r${i}`, code: "ABC12345", referrerId: "ref1", referredId: `u${i}`, status: "rewarded", rewardPaise: 20000, createdAtMs: 1000 + i }));
-    run(`myReferralCode = 'ABC12345'; myReferrals = ${JSON.stringify(refs)};`);
-    const html = run("renderRefer()") as string;
-    expect(html).toContain("50 / 50");
-    expect(html).toContain("Milestone reached");
+  it("Payment history labels trial fee and trial charge, with no wallet rows", () => {
+    run(
+      "paymentHistory=[normalizePayment({id:'pay_fee',user_id:'u1',plan_id:'monthly',amount:100,status:'captured',kind:'trial_fee',created_at:'2026-11-16T10:00:00Z'}),normalizePayment({id:'pay_charge',user_id:'u1',plan_id:'monthly',amount:39900,status:'captured',kind:'trial_charge',created_at:'2026-11-17T10:00:00Z'})];",
+    );
+    run("location.hash='#/payments'; render()");
+    const text = document.querySelector("#view")?.textContent || "";
+    expect(text).toContain("Trial fee — ₹1");
+    expect(text).toContain("Trial charge — ₹399");
+    expect(text).not.toContain("Earned");
+    expect(text).not.toContain("withdrawal");
   });
 
-  it("Refer & Earn shows the Referral conditions", () => {
-    run("myReferralCode = 'ABC12345'; myReferrals = [];");
-    const html = run("renderRefer()") as string;
-    expect(html).toContain("Referral conditions");
-    expect(html).toContain("₹200 and ₹500 per referral");
-    expect(html).toContain("FIRST plan");
-    expect(html).toContain("One reward per referred friend");
-    expect(html).toContain("Self-referral does not count");
-    expect(html).toContain("₹5,000 bonus once");
-    expect(html).toContain("Withdraw any amount via UPI");
-    expect(html).toContain("invalid");
-    expect(html).not.toContain("learning purpose only");
-  });
-
-  it("Wallet history renders the milestone bonus row distinctly", () => {
-    run(`walletTxns = [
-      {id:'t1', userId:'u1', kind:'milestone_bonus', amountPaise:500000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
-      {id:'t2', userId:'u1', kind:'referral_credit', amountPaise:20000, status:'completed', upiId:'', referralId:'r1', createdAtMs:2000},
-    ];`);
-    const html = run("renderWallet()") as string;
-    expect(html).toContain("Milestone bonus — ₹5,000");
-    expect(html).toContain("50 referrals completed");
-    expect(html).not.toContain("Earned ₹5,000");
-  });
-
-  it("Payment history shows the milestone bonus row", () => {
-    run(`paymentHistory = [];
-      walletTxns = [
-      {id:'t1', userId:'u1', kind:'milestone_bonus', amountPaise:500000, status:'completed', upiId:'', referralId:'r1', createdAtMs:1000},
-    ];`);
-    const html = run("renderPaymentHistory()") as string;
-    expect(html).toContain("Milestone bonus — ₹5,000");
-    expect(html).toContain("50 referrals completed");
-  });
-
-  it("total earned includes the milestone bonus", () => {
-    expect(run(`walletTotalEarnedPaise([
-      {kind:'referral_credit', amountPaise:20000, status:'completed'},
-      {kind:'milestone_bonus', amountPaise:500000, status:'completed'},
-      {kind:'withdrawal', amountPaise:-5000, status:'requested'},
-    ])`)).toBe(520000);
+  it("My Subscriptions shows the trial status and the will-not-renew note", () => {
+    run(
+      "trialStatus={id:'t1',status:'charge_pending',trialEndsAtMs:0,chargeAtMs:0,chargePaymentId:null};",
+    );
+    run("location.hash='#/subscriptions'; render()");
+    const text = document.querySelector("#view")?.textContent || "";
+    expect(text).toContain("Trial ended — charge retrying");
+    expect(text).toContain("Will not renew — no further charge after your access ends.");
+    expect(text).not.toContain("Cancel");
   });
 });
 
-// Referral/wallet admin coverage lives in the admin-panel describe below.
-describe("Referrals & wallet — admin panel", () => {
-  it("has a Referrals tab with totals, referrals and withdrawals", () => {
-    expect(adminHtml).toContain('["referrals","Referrals"]');
-    expect(adminHtml).toContain('data-sec="referrals"');
-    expect(adminHtml).toContain('id="referralList"');
-    expect(adminHtml).toContain('id="withdrawalList"');
-    expect(adminHtml).toContain('id="referralTotals"');
-    expect(adminScript).toContain("loadReferrals()");
-    expect(adminScript).toContain("markWithdrawalPaid");
-    expect(adminScript).toContain("markWithdrawalRejected");
-    expect(adminScript).toContain("markReferralRewarded");
-    expect(adminScript).toContain("maybeRewardMilestone");
-    expect(adminScript).toContain('rpc("check_referral_milestone"');
-    expect(adminScript).toContain("maybeRewardMilestone(ref.referrer_id,id)");
+describe("Removed systems — admin panel", () => {
+  it("has no Referrals tab, section or referral/wallet actions", () => {
+    expect(adminHtml).not.toContain('["referrals","Referrals"]');
+    expect(adminHtml).not.toContain('data-sec="referrals"');
+    expect(adminHtml).not.toContain('id="referralList"');
+    expect(adminHtml).not.toContain('id="withdrawalList"');
+    expect(adminHtml).not.toContain('id="referralTotals"');
+    for (const gone of [
+      "loadReferrals",
+      "markWithdrawalPaid",
+      "markWithdrawalRejected",
+      "markReferralRewarded",
+      "maybeRewardMilestone",
+      "check_referral_milestone",
+      "referral_codes",
+      "wallet_transactions",
+      "data-withdraw-pay",
+      "data-withdraw-reject",
+    ]) {
+      expect(adminScript).not.toContain(gone);
+    }
+    // The other tabs still load.
     expect(adminScript).toContain("reloadAll()");
-    expect(adminScript).toContain('data-withdraw-pay');
-    expect(adminScript).toContain('data-withdraw-reject');
-  });
-
-  it("admin actions only touch requested rows", () => {
-    expect(adminScript).toContain('.update({status:"paid"}).eq("id",id).eq("status","requested")');
-    expect(adminScript).toContain('.update({status:"rejected"}).eq("id",id).eq("status","requested")');
-    expect(adminScript).toContain('.update({status:"rewarded",reward_amount_paise:reward}).eq("id",id).eq("status","pending")');
   });
 });

@@ -30,17 +30,19 @@ describe("Privacy policy — sign-up page link", () => {
 
   it("sign-up form fields and order are unchanged", () => {
     const html = run("renderLogin()") as string;
-    // Name -> Email -> Password -> Referral code (last) -> Create account.
+    // Name -> Email -> Password -> Create account. The referral code field
+    // was REMOVED with the referral system (redirect 2026-11-16) and must
+    // not come back.
     const nameIdx = html.indexOf('id="signupNameBox"');
     const emailIdx = html.indexOf('id="authEmail"');
     const pwIdx = html.indexOf('id="authPassword"');
-    const refIdx = html.indexOf('id="signupRefBox"');
     const btnIdx = html.indexOf('id="emailBtn"');
     expect(nameIdx).toBeGreaterThan(-1);
     expect(emailIdx).toBeGreaterThan(nameIdx);
     expect(pwIdx).toBeGreaterThan(emailIdx);
-    expect(refIdx).toBeGreaterThan(pwIdx);
-    expect(btnIdx).toBeGreaterThan(refIdx);
+    expect(btnIdx).toBeGreaterThan(pwIdx);
+    expect(html).not.toContain('id="signupRefBox"');
+    expect(html).not.toContain('id="authRefCode"');
     expect(html).toContain("Continue with Google");
   });
 });

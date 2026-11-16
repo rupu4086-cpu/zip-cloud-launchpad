@@ -89,7 +89,9 @@ describe("Hosted learner interactions", () => {
     const flush = () => new Promise((r) => setTimeout(r, 5));
 
     function showLogin() {
-      run("currentUser = null; location.hash='#/home'; render()");
+      // Guests browse Home now — the login screen is reached through a
+      // sign-in-required route (Profile/Plans).
+      run("currentUser = null; location.hash='#/profile'; render()");
       expect(document.getElementById("authEmail")).not.toBeNull();
     }
 
@@ -108,14 +110,15 @@ describe("Hosted learner interactions", () => {
       expect(document.getElementById("signupNameBox")?.classList.contains("hide")).toBe(false);
       expect(signupButton().textContent).toBe("Create account");
       expect(document.getElementById("toggleMode")?.textContent).toBe("Already have an account? Sign in");
-      expect(document.getElementById("emailDivider")?.textContent).toBe("or sign up with email");
+      // The divider is static in the redesigned login ("or sign in with").
+      expect(document.querySelector(".divider")?.textContent).toBe("or sign in with");
     }
 
     function expectSigninMode() {
       expect(document.getElementById("signupNameBox")?.classList.contains("hide")).toBe(true);
       expect(signupButton().textContent).toBe("Sign in");
       expect(document.getElementById("toggleMode")?.textContent).toBe("Create a new account");
-      expect(document.getElementById("emailDivider")?.textContent).toBe("or sign in with email");
+      expect(document.querySelector(".divider")?.textContent).toBe("or sign in with");
       expect(signupButton().disabled).toBe(false);
     }
 

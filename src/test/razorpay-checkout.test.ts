@@ -121,22 +121,22 @@ describe("Razorpay Checkout (learner site)", () => {
     run("location.hash='#/plans'; render()");
   }
 
-  it("opens Checkout with the discounted amount when a spin code is active", () => {
-    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_test_abc'}; spinPct=40; spinCode='SPIN40';");
+  it("opens Checkout at full price — the spin wheel is removed, so no discount exists", () => {
+    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_test_abc'};");
     showPlans();
     (document.querySelector('[data-buy="monthly"]') as HTMLButtonElement).click();
     expect(MockRazorpay.instances).toHaveLength(1);
     const opts = MockRazorpay.instances[0]!.options;
     expect(opts.key).toBe("rzp_test_abc");
-    expect(opts.amount).toBe(60000); // ₹1,000 minus 40% = ₹600, in paise
+    expect(opts.amount).toBe(100000); // ₹1,000 Monthly, full price, in paise
     expect(opts.currency).toBe("INR");
-    expect(opts.description).toContain("SPIN40");
+    expect(opts.description).toBe("Monthly plan");
     expect(MockRazorpay.opened).toHaveLength(1);
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("opens Checkout at full price when no spin code is active", () => {
-    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_live_xyz'}; spinPct=0; spinCode='';");
+  it("opens Checkout at full price for Yearly", () => {
+    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_live_xyz'};");
     showPlans();
     (document.querySelector('[data-buy="yearly"]') as HTMLButtonElement).click();
     expect(MockRazorpay.instances[0]!.options.amount).toBe(300000);
@@ -144,7 +144,7 @@ describe("Razorpay Checkout (learner site)", () => {
   });
 
   it("shows a clear message and opens nothing when no Key ID and no link are set", () => {
-    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:''}; spinPct=0; spinCode='';");
+    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:''};");
     showPlans();
     (document.querySelector('[data-buy="monthly"]') as HTMLButtonElement).click();
     expect(MockRazorpay.instances).toHaveLength(0);
@@ -153,7 +153,7 @@ describe("Razorpay Checkout (learner site)", () => {
   });
 
   it("falls back to the payment link when no Key ID is set but a link exists", () => {
-    run("paymentConfig={monthlyLink:'https://rzp.io/l/test-monthly',yearlyLink:'',enabled:true,keyId:''}; spinPct=0; spinCode='';");
+    run("paymentConfig={monthlyLink:'https://rzp.io/l/test-monthly',yearlyLink:'',enabled:true,keyId:''};");
     showPlans();
     (document.querySelector('[data-buy="monthly"]') as HTMLButtonElement).click();
     expect(MockRazorpay.instances).toHaveLength(0);
@@ -161,7 +161,7 @@ describe("Razorpay Checkout (learner site)", () => {
   });
 
   it("records the payment and activates the plan after a successful Checkout", async () => {
-    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_test_abc'}; spinPct=40; spinCode='SPIN40';");
+    run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_test_abc'};");
     showPlans();
     (document.querySelector('[data-buy="monthly"]') as HTMLButtonElement).click();
     const handler = MockRazorpay.instances[0]!.options.handler as (r: unknown) => void;
@@ -169,9 +169,9 @@ describe("Razorpay Checkout (learner site)", () => {
     await flush();
     await flush();
     expect(paymentsRows).toEqual([
-      { id: "pay_test123", user_id: "test", plan_id: "monthly", amount: 60000, status: "captured" },
+      { id: "pay_test123", user_id: "test", plan_id: "monthly", amount: 100000, status: "captured", kind: "plan_purchase" },
     ]);
-    // The discounted payment activates the plan (amount check accepts the spin price).
+    // The full-price payment activates the plan.
     expect(subscriptionInserts).toHaveLength(1);
     expect(subscriptionInserts[0]!.plan_id).toBe("monthly");
     expect(subscriptionInserts[0]!.status).toBe("active");
@@ -179,34 +179,61 @@ describe("Razorpay Checkout (learner site)", () => {
     expect(document.querySelector("#view")?.textContent).toContain("now active");
   });
 
-  it("checkMyPayment accepts a captured payment at the spin-discounted amount", async () => {
+  it("checkMyPayment rejects a captured payment at a discounted amount", async () => {
     paymentsRows.push({
       id: "pay_disc1",
       user_id: "test",
       plan_id: "yearly",
-      amount: 180000, // ₹3,000 minus 40% = ₹1,800, in paise
+      amount: 180000, // ₹1,800 — not the ₹3,000 Yearly price; no discount exists any more
       status: "captured",
       created_at: new Date().toISOString(),
     });
-    run("spinPct=40; spinCode='SPIN40';");
     await run("checkMyPayment()");
-    expect(subscriptionInserts).toHaveLength(1);
-    expect(subscriptionInserts[0]!.plan_id).toBe("yearly");
+    expect(subscriptionInserts).toHaveLength(0);
+    expect(run("access().hasActiveSubscription")).toBe(false);
   });
 
-  it("verifyPaymentId accepts a captured payment at the spin-discounted amount", async () => {
+  it("checkMyPayment never activates on a ₹1 trial-fee row", async () => {
+    paymentsRows.push({
+      id: "pay_trial1",
+      user_id: "test",
+      plan_id: "monthly",
+      amount: 100, // ₹1 trial fee
+      status: "captured",
+      kind: "trial_fee",
+      created_at: new Date().toISOString(),
+    });
+    await run("checkMyPayment()");
+    expect(subscriptionInserts).toHaveLength(0);
+    expect(run("access().hasActiveSubscription")).toBe(false);
+  });
+
+  it("verifyPaymentId rejects a captured payment at a discounted amount", async () => {
     paymentsRows.push({
       id: "pay_disc2",
       user_id: "test",
       plan_id: "monthly",
-      amount: 50000, // ₹1,000 minus 50% = ₹500, in paise
+      amount: 50000, // ₹500 — not the ₹1,000 Monthly price
       status: "captured",
       created_at: new Date().toISOString(),
     });
-    run("spinPct=50; spinCode='SPIN50';");
     await run("verifyPaymentId('pay_disc2')");
-    expect(subscriptionInserts).toHaveLength(1);
-    expect(subscriptionInserts[0]!.plan_id).toBe("monthly");
+    expect(subscriptionInserts).toHaveLength(0);
+  });
+
+  it("verifyPaymentId refuses a ₹1 trial-fee row", async () => {
+    paymentsRows.push({
+      id: "pay_trial2",
+      user_id: "test",
+      plan_id: "monthly",
+      amount: 100,
+      status: "captured",
+      kind: "trial_fee",
+      created_at: new Date().toISOString(),
+    });
+    await run("verifyPaymentId('pay_trial2')");
+    expect(subscriptionInserts).toHaveLength(0);
+    expect(run("access().hasActiveSubscription")).toBe(false);
   });
 });
 
