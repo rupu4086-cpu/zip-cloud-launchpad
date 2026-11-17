@@ -268,20 +268,23 @@ describe("Trial hero + paywall (learner site)", () => {
     expect(html).toContain("5 episodes");
   });
 
-  it("Plans shows the trial card on top and full-price Monthly/Yearly cards", () => {
+  it("Plans shows the trial card on top and only the ₹399 Monthly card", () => {
     run("location.hash='#/plans'; render()");
     const text = document.querySelector("#view")?.textContent || "";
     expect(text).toContain("Learn everything for ₹1");
-    expect(text).toContain("₹1,000");
-    expect(text).toContain("₹3,000");
+    expect(text).not.toContain("₹1,000");
+    expect(text).not.toContain("₹3,000");
     expect(text).not.toContain("SPIN");
     expect(text).not.toContain("% off");
     // Trial card comes before the Monthly plan card in the DOM.
     const trialPos = text.indexOf("Learn everything for ₹1");
-    const monthlyPos = text.indexOf("₹1,000");
+    const monthlyPos = text.indexOf("MONTHLY");
     expect(trialPos).toBeGreaterThan(-1);
     expect(monthlyPos).toBeGreaterThan(-1);
     expect(trialPos).toBeLessThan(monthlyPos);
+    // Only the Monthly card is sold on Plans; Yearly stays in the system.
+    expect(document.querySelector('[data-plancard="monthly"]')?.textContent).toContain("₹399");
+    expect(document.querySelector('[data-plancard="yearly"]')).toBeNull();
   });
 
   it("Profile shows the name, Library + Subscriptions rows, and no Refer/Wallet rows", () => {

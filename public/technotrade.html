@@ -519,11 +519,15 @@
       }
       function courseNeedsYearly(id){ return id === "big-trader-strategies"; }
       const PLANS = [
-        {id:"monthly", name:"Monthly", pricePaise:100000, price:"₹1,000", per:"/month", durationDays:30,
+        {id:"monthly", name:"Monthly", pricePaise:39900, price:"₹399", per:"/month", durationDays:30,
          tagline:"All trading categories, 1 month",
          features:["7 courses — all except Big Trader Strategies","All course videos, full access for 1 month","Course completion certificate"],
-         excluded:["Big Trader Strategies is only in Yearly"]},
+         excluded:[]},
+        // Yearly stays in the system (existing subscribers keep access, and
+        // Big Trader Strategies stays yearly-gated) but is NOT sold on the
+        // Plans page any more — Plans shows only Trial + Monthly (Rupu 2026-11-17).
         {id:"yearly", name:"Yearly", pricePaise:300000, price:"₹3,000", per:"/year", durationDays:365, perLine:"Only ₹250/month",
+         hidden:true,
          tagline:"All categories + Big Trader Strategies, 1 year",
          features:["Everything in Monthly, for a full year","Big Trader Strategies — the big traders' profit playbook","New courses added through the year included","Priority doubt support"],
          excluded:[]}
@@ -1586,7 +1590,7 @@
         if(trialStatus && trialStatus.status === "charge_failed"){
           return '<div class="trial-hero">' +
             '<p class="trial-eyebrow">TRIAL ENDED</p><h2>The automatic charge didn\'t go through</h2>' +
-            '<p class="trial-sub">Your trial has ended and the ₹399 charge failed after retries. You can buy Monthly (₹1,000) directly — a second trial is not available.</p>' +
+            '<p class="trial-sub">Your trial has ended and the ₹399 charge failed after retries. You can buy Monthly (₹399) directly — a second trial is not available.</p>' +
             '<button class="btn btn-gold" onclick="go(\'plans\')">See plans</button></div>';
         }
         if(trialStatus && trialStatus.status === "charge_pending"){
@@ -1661,7 +1665,7 @@
         html += '<div class="sechd"><b>Common questions</b></div>' +
           '<details class="faq-item"><summary>What is the ₹1 trial?</summary><p>You pay ₹1 today and get full access for 1 day. ₹399 is charged automatically tomorrow for 1 month of access. After that your access ends — no further charge, ever.</p></details>' +
           '<details class="faq-item"><summary>Will my plan renew automatically?</summary><p>No. The trial converts once to a 1-month plan and then ends. There is nothing to cancel.</p></details>' +
-          '<details class="faq-item"><summary>What if the ₹399 charge fails?</summary><p>It is retried for up to 3 days. If it still fails, your trial has ended — you can buy Monthly (₹1,000) directly. A second trial is not available.</p></details>' +
+          '<details class="faq-item"><summary>What if the ₹399 charge fails?</summary><p>It is retried for up to 3 days. If it still fails, your trial has ended — you can buy Monthly (₹399) directly. A second trial is not available.</p></details>' +
           '<details class="faq-item"><summary>Do I get a certificate?</summary><p>Yes — every course has a completion certificate.</p></details>' +
           '<details class="faq-item"><summary>Which payment methods work?</summary><p>UPI and cards, through Razorpay\'s secure checkout.</p></details>';
         return html;
@@ -2060,7 +2064,9 @@
             ? "Subscription active — Plan: " + esc(a.planId || "") + " • Valid till " + fmtDate(a.expiresAt)
             : "No active subscription — Subscribe to unlock all courses.") +
           '</p></div>';
-        html += PLANS.map(p => {
+        // Only plans on sale are shown — Yearly is hidden (kept in the system
+        // for existing subscribers), so Plans shows Trial + Monthly only.
+        html += PLANS.filter(p => !p.hidden).map(p => {
           const featured = p.id === "yearly";
           const link = p.id === "yearly" ? cfg.yearlyLink : cfg.monthlyLink;
           const buyEnabled = !!(cfg.enabled && link);
@@ -2326,7 +2332,7 @@
         }
         if(trialStatus && trialStatus.status === "charge_failed"){
           return '<div class="sub-status-card"><span class="status-pill ended">ENDED</span>' +
-            '<b class="plan-name">Trial ended</b><p>The automatic ₹399 charge failed after retries. Buy Monthly (₹1,000) directly — a second trial is not available.</p>' +
+            '<b class="plan-name">Trial ended</b><p>The automatic ₹399 charge failed after retries. Buy Monthly (₹399) directly — a second trial is not available.</p>' +
             '<button class="btn btn-gold" onclick="go(\'plans\')">See plans</button></div>';
         }
         if(trialStatus && trialStatus.status === "charge_pending"){

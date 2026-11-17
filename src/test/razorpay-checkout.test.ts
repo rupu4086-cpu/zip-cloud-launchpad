@@ -128,17 +128,20 @@ describe("Razorpay Checkout (learner site)", () => {
     expect(MockRazorpay.instances).toHaveLength(1);
     const opts = MockRazorpay.instances[0]!.options;
     expect(opts.key).toBe("rzp_test_abc");
-    expect(opts.amount).toBe(100000); // ₹1,000 Monthly, full price, in paise
+    expect(opts.amount).toBe(39900); // ₹399 Monthly, full price, in paise
     expect(opts.currency).toBe("INR");
     expect(opts.description).toBe("Monthly plan");
     expect(MockRazorpay.opened).toHaveLength(1);
     expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("opens Checkout at full price for Yearly", () => {
+  it("Plans no longer sells Yearly — only Trial + Monthly are shown", () => {
     run("paymentConfig={monthlyLink:'',yearlyLink:'',enabled:true,keyId:'rzp_live_xyz'};");
     showPlans();
-    (document.querySelector('[data-buy="yearly"]') as HTMLButtonElement).click();
+    expect(document.querySelector('[data-buy="yearly"]')).toBeNull();
+    expect(document.querySelector('[data-buy="monthly"]')).not.toBeNull();
+    // Yearly still exists in the system: Checkout opens at full price for it.
+    run("openCheckout('yearly')");
     expect(MockRazorpay.instances[0]!.options.amount).toBe(300000);
     expect(MockRazorpay.instances[0]!.options.description).toBe("Yearly plan");
   });
@@ -169,7 +172,7 @@ describe("Razorpay Checkout (learner site)", () => {
     await flush();
     await flush();
     expect(paymentsRows).toEqual([
-      { id: "pay_test123", user_id: "test", plan_id: "monthly", amount: 100000, status: "captured", kind: "plan_purchase" },
+      { id: "pay_test123", user_id: "test", plan_id: "monthly", amount: 39900, status: "captured", kind: "plan_purchase" },
     ]);
     // The full-price payment activates the plan.
     expect(subscriptionInserts).toHaveLength(1);
@@ -213,7 +216,7 @@ describe("Razorpay Checkout (learner site)", () => {
       id: "pay_disc2",
       user_id: "test",
       plan_id: "monthly",
-      amount: 50000, // ₹500 — not the ₹1,000 Monthly price
+      amount: 50000, // ₹500 — not the ₹399 Monthly price
       status: "captured",
       created_at: new Date().toISOString(),
     });
