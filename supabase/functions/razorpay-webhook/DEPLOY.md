@@ -17,12 +17,18 @@ before publishing the site/admin changes.
 Lovable dashboard → Functions → `razorpay-webhook` → Deploy.
 (Or from a terminal with the Supabase CLI: `supabase functions deploy razorpay-webhook`.)
 
-> **BLOCKED 2026-11-16:** the live function URL 404s and Lovable has no
-> manual deploy button — the trial routes in `index.ts` (`/trial/create`,
-> `/trial/verify`, `/trial/reconcile`, subscription webhooks) are written
-> but NOT live. Do not claim trial billing works until a deploy path is
-> confirmed and the function URL responds. See
-> `replica/build-log.md`.
+> **BLOCKED 2026-11-16, still blocked 2026-11-20:** the live function
+> URL 404s and Lovable has no manual deploy button — the trial routes in
+> `index.ts` (`/trial/create`, `/trial/verify`, `/trial/reconcile`,
+> subscription webhooks) are written but NOT live. Do not claim trial
+> billing works until a deploy path is confirmed and the function URL
+> responds. See `replica/build-log.md`.
+>
+> **Update 2026-11-20:** the code side is now fully wired — the ₹399
+> Razorpay Plan exists (step 3) and is the function's default, and the
+> learner site already calls the trial routes. Deploying this function,
+> running `replica/schema.sql`, setting the remaining secrets (step 3)
+> and registering the webhook (step 4) are the only steps left.
 
 ## 3. Set the function secrets
 
@@ -35,10 +41,14 @@ needed; none of them ever goes in the repo, the admin panel, or browser code:
 - `RAZORPAY_KEY_SECRET` — from Razorpay Dashboard → Settings → API Keys.
   Used only to verify Checkout handler signatures (`/verify` and
   `/trial/verify` paths).
-- `RAZORPAY_TRIAL_PLAN_ID` — the NEW ₹399/month Razorpay Plan id
-  (`plan_…`), created in the Razorpay Dashboard → Subscriptions → Plans
-  (Monthly, ₹399). A plan's amount can never be edited, so this is NOT
-  the existing ₹1,000 Monthly plan. Needed only for `/trial/create`.
+- `RAZORPAY_TRIAL_PLAN_ID` — **DONE 2026-11-20, no longer required.**
+  The ₹399/month plan was created in the Razorpay Dashboard
+  ("TechnoTrade academy", ₹399, every 1 month):
+  `plan_U2UnYfLgRuZLOL`. `index.ts` uses it as the built-in default
+  (`TRIAL_RAZORPAY_PLAN_ID`); set this secret only to override it.
+- `RAZORPAY_KEY_ID` — **not required.** Razorpay REST calls (subscription
+  create / fetch) resolve the public Key ID from `payment_config.key_id`
+  (the value saved in the admin panel) when this secret is absent.
 - `SUPABASE_URL` — `https://kgoptzoxvcfianbrlpsz.supabase.co`
 - `SUPABASE_SERVICE_ROLE_KEY` — Supabase project service-role key (bypasses
   RLS so the webhook can write subscriptions).

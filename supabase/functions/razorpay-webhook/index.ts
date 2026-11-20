@@ -11,6 +11,9 @@
 // endpoint exists until a deploy path is confirmed — do not claim trial
 // billing works end-to-end until the function actually serves. See
 // replica/build-log.md and replica/architecture.md § "Blocked / needs Rupu".
+// UPDATE 2026-11-20: the ₹399/month Razorpay Plan now EXISTS
+// (plan_U2UnYfLgRuZLOL) and is wired in below as the default; the deploy
+// block above is the only thing still keeping the trial endpoints dark.
 //
 // Server-side paths (one shared activation step — create/extend the
 // subscription, update-then-insert; subscriptions has NO unique constraint
@@ -52,10 +55,12 @@
 // Secrets (set in Lovable dashboard -> Functions -> razorpay-webhook ->
 // Secrets; NEVER in the repo, the admin panel, or browser code):
 //   RAZORPAY_WEBHOOK_SECRET, RAZORPAY_KEY_SECRET,
-//   RAZORPAY_TRIAL_PLAN_ID (the NEW ₹399/month Razorpay Plan — created in
-//   the Razorpay Dashboard; a plan's amount can never be edited, so this
-//   is NOT the existing ₹1,000 Monthly plan),
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+//   RAZORPAY_TRIAL_PLAN_ID is an OPTIONAL override only: the ₹399/month
+//   plan (plan_U2UnYfLgRuZLOL, created in the Razorpay Dashboard
+//   2026-11-20) is the server-side default — see TRIAL_RAZORPAY_PLAN_ID
+//   below. RAZORPAY_KEY_ID is likewise optional: Razorpay REST calls
+//   resolve the public Key ID from payment_config (see apiKeyId()).
 // The Key Secret is never the webhook secret and vice versa — Razorpay
 // signs webhooks with the webhook secret, and Checkout handler signatures
 // with the Key Secret.
@@ -70,6 +75,13 @@ const TRIAL_FEE_PAISE = 100; // ₹1 upfront addon, collected at authorisation
 const TRIAL_CONVERSION_PAISE = 39900; // ₹399 single auto-charge
 const TRIAL_DURATION_MS = 24 * 3600 * 1000; // exactly 24 hours
 const TRIAL_PLAN_ID = "monthly"; // the trial converts to Monthly only
+// The Razorpay Plan the trial subscription is created on: "TechnoTrade
+// academy", ₹399 every 1 month, created in the Razorpay Dashboard
+// 2026-11-20. A Plan ID is an identifier, not a secret — safe as a
+// server-side constant; it never leaves this function (Checkout receives
+// only the subscription id + the public Key ID). The
+// RAZORPAY_TRIAL_PLAN_ID secret, when set, overrides this default.
+const TRIAL_RAZORPAY_PLAN_ID = "plan_U2UnYfLgRuZLOL";
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -362,6 +374,15 @@ serve(async (req: Request) => {
   const supabase = createClient(supabaseUrl, serviceKey);
   const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET") || "";
   const keyId = Deno.env.get("RAZORPAY_KEY_ID") || "";
+  // Razorpay REST calls use the public Key ID as the Basic-auth username.
+  // The canonical copy lives in payment_config (saved from the admin
+  // panel — the same value Checkout uses), so resolve it from there
+  // instead of requiring a separate RAZORPAY_KEY_ID secret.
+  let apiKeyIdCache = "";
+  const apiKeyId = async (): Promise<string> => {
+    if (!apiKeyIdCache) apiKeyIdCache = keyId || (await publicKeyId(supabase));
+    return apiKeyIdCache;
+  };
 
   // ---- Trial routes (browser calls these with the user's JWT) ----
   if (url.pathname.endsWith("/trial/create")) {
@@ -369,11 +390,8 @@ serve(async (req: Request) => {
     if (!keySecret) return json({ ok: false, error: "server_not_configured" }, 500);
     const userId = await authedUserId(supabase, req);
     if (!userId) return json({ ok: false, error: "unauthorized" }, 401);
-    const trialPlanId = Deno.env.get("RAZORPAY_TRIAL_PLAN_ID") || "";
-    if (!trialPlanId) {
-      console.error("razorpay-webhook: RAZORPAY_TRIAL_PLAN_ID secret missing");
-      return json({ ok: false, error: "trial_not_configured" }, 500);
-    }
+    // Env override wins; otherwise the ₹399 plan created 2026-11-20.
+    const trialPlanId = Deno.env.get("RAZORPAY_TRIAL_PLAN_ID") || TRIAL_RAZORPAY_PLAN_ID;
     // One trial per user EVER: an existing row is returned, never a new mandate.
     const { data: existing } = await supabase
       .from("trial_subscriptions")
@@ -398,7 +416,7 @@ serve(async (req: Request) => {
       .maybeSingle();
     if (activeSub) return json({ ok: false, error: "already_subscribed" }, 409);
     const startAtSec = Math.floor(Date.now() / 1000) + 24 * 3600;
-    const { status, data: sub } = await razorpayRequest(keyId, keySecret, "POST", "/subscriptions", {
+    const { status, data: sub } = await razorpayRequest(await apiKeyId(), keySecret, "POST", "/subscriptions", {
       plan_id: trialPlanId,
       total_count: 1, // single billing cycle — Razorpay itself ends it after one charge
       quantity: 1,
@@ -497,7 +515,7 @@ serve(async (req: Request) => {
       .maybeSingle();
     if (!row) return json({ ok: false, error: "trial_not_found" }, 404);
     try {
-      const synced = await syncTrialFromRazorpay(supabase, keyId, keySecret, row);
+      const synced = await syncTrialFromRazorpay(supabase, await apiKeyId(), keySecret, row);
       if (!synced) return json({ ok: false, error: "razorpay_not_found" }, 502);
       return json({ ok: true, status: synced.status, charge_at: synced.charge_at, charge_payment_id: synced.charge_payment_id || null });
     } catch (e) {
@@ -620,7 +638,7 @@ serve(async (req: Request) => {
         // Confirms the single charge is done and nothing further can ever
         // be charged. If the charged event was missed, sync from Razorpay.
         if (trialRow.status !== "converted") {
-          await syncTrialFromRazorpay(supabase, keyId, keySecret, trialRow);
+          await syncTrialFromRazorpay(supabase, await apiKeyId(), keySecret, trialRow);
         } else {
           await supabase.from("trial_subscriptions").update({ razorpay_status: "completed" }).eq("id", trialRow.id);
         }
